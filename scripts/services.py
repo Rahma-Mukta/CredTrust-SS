@@ -1,5 +1,5 @@
 from this import d
-from brownie import credentialRegistry, accounts
+from brownie import DIDRegistry, credentialRegistry, IssuerRegistry, accounts
 import uuid
 import requests
 import json
@@ -9,6 +9,9 @@ hospital = accounts[1]
 doctor = accounts[2]
 patient = accounts[3]
 verifier = accounts[4]
+
+DID_contract = DIDRegistry.deploy({'from': contractDeployAccount})
+issuer_contract = IssuerRegistry.deploy({'from':contractDeployAccount})
 
 cred_contract = credentialRegistry.deploy({'from': contractDeployAccount})
 mapch_server = "127.0.0.1:5000"
@@ -117,6 +120,17 @@ def loadCredential(file):
     with open(file, "r") as f:
         return json.dumps(json.load(f))
 
+
+def registerDID(issuer):
+    DID_contract.register(issuer, str("did"+ issuer.address), {"from":  issuer})
+    print(DID_contract.getDID(issuer))
+
+def addPubKey(holder, issuer, ch_pk):
+    DID_contract.addPublicKey(holder, issuer, str(ch_pk), {"from": issuer})
+
+def registerIssuer(holder, issuer, ch_pk):
+    issuer_contract.addIssuer(str(ch_pk), holder, {"from": issuer})
+
 def main():
 
     # id = issueCredential(hospital, "did:" + str(hospital.address), "did:" + str(doctor.address), "somehash", "somer", "some e", "somen1")
@@ -130,6 +144,9 @@ def main():
     ##### SCENARIO 1
     
     # == hospital ==
+    print("REGISTER DID ===\n")
+    registerDID(hospital)
+    
     print("CREATING ABE AUTHORITY ===\n")
     maab_master_pk_sk = createABEAuthority("DOCTORA")
     print("CREATING CH KEYS ===\n")
@@ -137,18 +154,31 @@ def main():
     print("CREATING HASH ===\n")
     print("LOADING HASH MESSAGE===\n")
     credential_msg = loadCredential("scripts/supporting_credential_example.json")
+
+    print("ADDING OWNER TO THE BLOCKCHAIN===\n")
+    print(cham_hash_pk_sk["pk"])
+    addPubKey(hospital, hospital, cham_hash_pk_sk["pk"]["N"])
+    registerIssuer(hospital, hospital, cham_hash_pk_sk["pk"]["N"])
     # TODO: fix access policy, should be both patient and doctor
     print("CREATING ACTUAL HASH===\n")
     credential_pack = generateSupportingCredential(credential_msg, "(PATIENT@DOCTORA)", cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
     # action: share credential pack, cham_hash_pk and maab_master_pk_sk with DOCTORA
 
     ## == doctor ==
+    print("REGISTER DID ===\n")
+    registerDID(doctor)
+
     print("VERIFYING HASH ===\n")
     res1 = verifySupportingCredential(credential_msg, credential_pack["credential_id"], cham_hash_pk_sk["pk"], doctor)
     print(res1)
     # TODO: fix, this should be doctor
     print("CREATING ABE SECRET KEY ===\n")
     doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Patient", "PATIENT@DOCTORA") 
+
+    print("ADDING OWNER TO THE BLOCKCHAIN===\n")
+    addPubKey(doctor, hospital, cham_hash_pk_sk["pk"]["N"])
+    registerIssuer(doctor, hospital, cham_hash_pk_sk["pk"]["N"])
+
     print("ADAPTING HASH ===\n")
     modified_credential_pack = adaptSupportingCredential(credential_pack["credential_hash"], credential_msg, "stuff", cham_hash_pk_sk["pk"], "Patient", doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address))
     print("VERIFYING HASH ===\n")
