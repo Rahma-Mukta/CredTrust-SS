@@ -1,8 +1,9 @@
 from this import d
-from brownie import DIDRegistry, credentialRegistry, IssuerRegistry, accounts
+from brownie import revocationRegistry, DIDRegistry, IssuerRegistry, credentialRegistry, accounts
 import uuid
 import requests
 import json
+import hashlib
 
 contractDeployAccount = accounts[0]
 hospital = accounts[1]
@@ -12,6 +13,7 @@ verifier = accounts[4]
 
 DID_contract = DIDRegistry.deploy({'from': contractDeployAccount})
 issuer_contract = IssuerRegistry.deploy({'from':contractDeployAccount})
+revocation_contract = revocationRegistry.deploy({'from':contractDeployAccount})
 
 cred_contract = credentialRegistry.deploy({'from': contractDeployAccount})
 mapch_server = "127.0.0.1:5000"
@@ -34,11 +36,12 @@ def getCredential(id, acc):
         "e" : cred_e
     }
 
-def createABEAuthority(authority_name):
+def createABEAuthority(authority_name, issuer):
     body = { "authority_name" : authority_name }
     x = requests.post(f"http://{mapch_server}/create_abe_authority", headers=head, json=body)
     maab_master_pk_sk = json.loads(x.text)
-    
+    print(maab_master_pk_sk["pk"])
+    addMasterKey(maab_master_pk_sk["pk"], issuer)
     return maab_master_pk_sk
 
 def createCHKeys():
@@ -47,9 +50,12 @@ def createCHKeys():
     
     return cham_hash_pk_sk
 
-def createABESecretKey(abe_master_sk, gid, user_attribute):
+def createABESecretKey(abe_master_key, gid, user_attribute, issuer):
+    # if master key is invalid , return None
+    if not checkMasterKey(abe_master_key["pk"], issuer):
+        return None
     body = {
-        "sk" : abe_master_sk,
+        "sk" : abe_master_key["sk"],
         "gid" : gid,
         "user_attribute" : [user_attribute]
     }
@@ -57,9 +63,14 @@ def createABESecretKey(abe_master_sk, gid, user_attribute):
     x = requests.post(f"http://{mapch_server}/create_abe_attribute_secret_key", headers=head, json=body)
     abe_secret_key = json.loads(x.text)
 
+    addSecretKey(abe_master_key["pk"], abe_secret_key, issuer)
     return abe_secret_key
 
 def generateSupportingCredential(credential, access_policy, ch_pk, ch_sk, authority_abe_pk, issuing_account, official_issuer, holder):
+    # if master key is invalid, return none
+    if not checkMasterKey(authority_abe_pk, issuing_account):
+        return None
+    # access policy
     body = {
         "cham_pk" : ch_pk, 
         "cham_sk" : ch_sk,
@@ -94,7 +105,9 @@ def verifySupportingCredential(credential_message, credential_id, ch_pk, verifie
     return hash_res["is_hash_valid"] == "True"
 
 def adaptSupportingCredential(credential_hash, original_msg, new_msg, cham_pk, gid, abe_secret_key, issuing_account, issuer, holder):
-    
+    # if secret key is not valid, return None
+    if not checkSecretKey(abe_secret_key, issuing_account):
+        return None
     # modify credential
     body = {
         "hash" : credential_hash,
@@ -120,16 +133,33 @@ def loadCredential(file):
     with open(file, "r") as f:
         return json.dumps(json.load(f))
 
-
 def registerDID(issuer):
     DID_contract.register(issuer, str("did"+ issuer.address), {"from":  issuer})
     print(DID_contract.getDID(issuer))
 
 def addPubKey(holder, issuer, ch_pk):
-    DID_contract.addPublicKey(holder, issuer, str(ch_pk), {"from": issuer})
+    DID_contract.addPublicKey(issuer, holder, str(ch_pk), {"from": issuer})
 
 def registerIssuer(holder, issuer, ch_pk):
     issuer_contract.addIssuer(str(ch_pk), holder, {"from": issuer})
+
+def addMasterKey(abe_master_key, issuer):
+    revocation_contract.addMasterKey(str(abe_master_key["egga"]) + str(abe_master_key["gy"]), {"from": issuer})
+
+def addSecretKey(abe_master_key, abe_secret_key, issuer):
+    revocation_contract.addSecretKey(str(abe_master_key["egga"]) + str(abe_master_key["gy"]), hashlib.sha256(str(abe_secret_key).encode()).hexdigest(), {"from": issuer})
+
+def revokeMasterKey(abe_master_key, issuer):
+    revocation_contract.revokeMasterKey(str(abe_master_key["egga"]) + str(abe_master_key["gy"]), {"from": issuer})
+
+def revokeSecretKey(abe_secret_key, issuer):
+    revocation_contract.revokeSecretKey(hashlib.sha256(str(abe_secret_key).encode()).hexdigest(), {"from": issuer})
+
+def checkMasterKey(abe_master_key, issuer):
+    return revocation_contract.checkMasterKey(str(abe_master_key["egga"]) + str(abe_master_key["gy"]), {"from": issuer})
+
+def checkSecretKey(abe_secret_key, issuer):
+    return revocation_contract.checkSecretKey(hashlib.sha256(str(abe_secret_key).encode()).hexdigest(), {"from": issuer})
 
 def main():
 
@@ -148,7 +178,7 @@ def main():
     registerDID(hospital)
     
     print("CREATING ABE AUTHORITY ===\n")
-    maab_master_pk_sk = createABEAuthority("DOCTORA")
+    maab_master_pk_sk = createABEAuthority("DOCTORA", hospital)
     print("CREATING CH KEYS ===\n")
     cham_hash_pk_sk = createCHKeys()
     print("CREATING HASH ===\n")
@@ -173,7 +203,8 @@ def main():
     print(res1)
     # TODO: fix, this should be doctor
     print("CREATING ABE SECRET KEY ===\n")
-    doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Patient", "PATIENT@DOCTORA") 
+    doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk, "Patient", "PATIENT@DOCTORA", hospital) 
+    print(doctor_abe_secret_key)
 
     print("ADDING OWNER TO THE BLOCKCHAIN===\n")
     addPubKey(doctor, hospital, cham_hash_pk_sk["pk"]["N"])

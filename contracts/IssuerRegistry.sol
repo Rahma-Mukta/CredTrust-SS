@@ -7,7 +7,7 @@ import "./AdminAccountRegistry.sol";
 contract IssuerRegistry {
 
     mapping (string => address[]) issuer_map; // describes the interaction infromation to other DIDs
-    mapping(string => bool) issuer_exist;
+    mapping (string => bool) issuer_exist;
     address adminReristryAddr;
     
     function issuerPermission(address _adminReristryAddr) public{
@@ -20,7 +20,6 @@ contract IssuerRegistry {
     }
     
     function addIssuer(string memory newIssuer, address _newIssuer) public {
-        require (issuer_exist[newIssuer] == false, "the issuer already exists");
         issuer_map[newIssuer].push(_newIssuer);
         issuer_exist[newIssuer] = true;
     }
