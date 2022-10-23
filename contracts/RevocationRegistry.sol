@@ -16,16 +16,20 @@ contract revocationRegistry {
         keys_map[master_key].push(secret_key);
     }
 
-    function revokeMasterKey(string memory key) public {
+    function revokeMasterKey(string memory key) public returns(bool) {
+        if (AbeMasterKey_exist[key] == false) return false;
         AbeMasterKey_exist[key] = false;
         for (uint i = 0; i < keys_map[key].length; i++) {
             revokeSecretKey(keys_map[key][i]);
         }
         delete keys_map[key];
+        return true;
     }
 
-    function revokeSecretKey(string memory key) public {
+    function revokeSecretKey(string memory key) public returns(bool){
+        if (AbeSecretKey_exist[key] == false) return false;
         AbeSecretKey_exist[key] = false;
+        return true;
     }
 
     function checkMasterKey(string memory key) public view returns(bool) {

@@ -150,10 +150,10 @@ def addSecretKey(abe_master_key, abe_secret_key, issuer):
     revocation_contract.addSecretKey(str(abe_master_key["egga"]) + str(abe_master_key["gy"]), hashlib.sha256(str(abe_secret_key).encode()).hexdigest(), {"from": issuer})
 
 def revokeMasterKey(abe_master_key, issuer):
-    revocation_contract.revokeMasterKey(str(abe_master_key["egga"]) + str(abe_master_key["gy"]), {"from": issuer})
+    return revocation_contract.revokeMasterKey(str(abe_master_key["egga"]) + str(abe_master_key["gy"]), {"from": issuer})
 
 def revokeSecretKey(abe_secret_key, issuer):
-    revocation_contract.revokeSecretKey(hashlib.sha256(str(abe_secret_key).encode()).hexdigest(), {"from": issuer})
+    return revocation_contract.revokeSecretKey(hashlib.sha256(str(abe_secret_key).encode()).hexdigest(), {"from": issuer})
 
 def checkMasterKey(abe_master_key, issuer):
     return revocation_contract.checkMasterKey(str(abe_master_key["egga"]) + str(abe_master_key["gy"]), {"from": issuer})
@@ -179,6 +179,10 @@ def main():
     
     print("CREATING ABE AUTHORITY ===\n")
     maab_master_pk_sk = createABEAuthority("DOCTORA", hospital)
+
+    print("CHECK FOR MASTER KEY VALIDITY ===\n")
+    print(checkMasterKey(maab_master_pk_sk["pk"], hospital))
+
     print("CREATING CH KEYS ===\n")
     cham_hash_pk_sk = createCHKeys()
     print("CREATING HASH ===\n")
@@ -214,4 +218,14 @@ def main():
     modified_credential_pack = adaptSupportingCredential(credential_pack["credential_hash"], credential_msg, "stuff", cham_hash_pk_sk["pk"], "Patient", doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address))
     print("VERIFYING HASH ===\n")
     res2 = verifySupportingCredential("stuff", modified_credential_pack["credential_id"], cham_hash_pk_sk["pk"], verifier)
+
+    print("REVOKE MASTER KEY ===\n")
+    revokeMasterKey(maab_master_pk_sk["pk"], hospital)
+
+    print("CHECK FOR MASTER KEY VALIDITY ===\n")
+    print(checkMasterKey(maab_master_pk_sk["pk"], hospital))
+
+    print("CHECK FOR ABE SECRET KEY VALIDITY ===\n")
+    print(checkSecretKey(doctor_abe_secret_key, hospital))
+
     print(res2)
