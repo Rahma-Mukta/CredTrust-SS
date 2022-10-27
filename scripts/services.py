@@ -83,15 +83,19 @@ def generateSupportingCredential(credential, access_policy, ch_pk, ch_sk, author
     hash = json.loads(x.text)
 
     cred_id = issueCredential(issuing_account, official_issuer, holder, hash["h"], hash["r"], hash["e"], hash["N1"])
+    addCredential(hash, issuing_account)
 
     return {
         "credential_hash" : hash,
         "credential_id" : cred_id
     }
 
-def verifySupportingCredential(credential_message, credential_id, ch_pk, verifier):
+def verifySupportingCredential(credential_message, credential_hash, ch_pk, verifier):
 
-    reconstructed_hash = getCredential(credential_id, verifier)
+    if not checkCredential(credential_hash["credential_hash"], verifier):
+        return False
+   
+    reconstructed_hash = getCredential(credential_hash["credential_id"], verifier)
     
     body = {
         "message" : credential_message,
@@ -123,6 +127,7 @@ def adaptSupportingCredential(credential_hash, original_msg, new_msg, cham_pk, g
     
     # add it to credential registry
     cred_id = issueCredential(issuing_account, issuer, holder, hash_modified["h"], hash_modified["r"], hash_modified["e"], hash_modified["N1"])
+    addCredential(hash_modified, issuing_account)
 
     return {
         "credential_hash" : hash_modified,
@@ -149,8 +154,8 @@ def addMasterKey(abe_master_key, issuer):
 def addSecretKey(abe_master_key, abe_secret_key, issuer):
     revocation_contract.addSecretKey(str(abe_master_key["egga"]) + str(abe_master_key["gy"]), hashlib.sha256(str(abe_secret_key).encode()).hexdigest(), {"from": issuer})
 
-def revokeMasterKey(abe_master_key, issuer):
-    return revocation_contract.revokeMasterKey(str(abe_master_key["egga"]) + str(abe_master_key["gy"]), {"from": issuer})
+def revokeMasterKey(abe_master_key, aggressive, issuer):
+    return revocation_contract.revokeMasterKey(str(abe_master_key["egga"]) + str(abe_master_key["gy"]), aggressive, {"from": issuer})
 
 def revokeSecretKey(abe_secret_key, issuer):
     return revocation_contract.revokeSecretKey(hashlib.sha256(str(abe_secret_key).encode()).hexdigest(), {"from": issuer})
@@ -160,6 +165,18 @@ def checkMasterKey(abe_master_key, issuer):
 
 def checkSecretKey(abe_secret_key, issuer):
     return revocation_contract.checkSecretKey(hashlib.sha256(str(abe_secret_key).encode()).hexdigest(), {"from": issuer})
+
+def addCredential(credential_id, issuer):
+    revocation_contract.addCredential(str(credential_id["h"] + credential_id["r"]), {"from": issuer})
+
+def addDependentCredential(top_credential_id, bottom_credential_id, issuer):
+    revocation_contract.addCredential(str(top_credential_id["h"] + top_credential_id["r"]), str(bottom_credential_id["h"] + bottom_credential_id["r"]), {"from": issuer})
+
+def revokeCredential(credential_id, issuer):
+    revocation_contract.revokeDependentCredential(str(credential_id["h"] + credential_id["r"]), {"from": issuer})
+
+def checkCredential(credential_id, issuer):
+    return revocation_contract.checkCredential(str(credential_id["h"] + credential_id["r"]), {"from": issuer})
 
 def main():
 
@@ -196,6 +213,7 @@ def main():
     # TODO: fix access policy, should be both patient and doctor
     print("CREATING ACTUAL HASH===\n")
     credential_pack = generateSupportingCredential(credential_msg, "(PATIENT@DOCTORA)", cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
+    print(credential_pack)
     # action: share credential pack, cham_hash_pk and maab_master_pk_sk with DOCTORA
 
     ## == doctor ==
@@ -203,7 +221,7 @@ def main():
     registerDID(doctor)
 
     print("VERIFYING HASH ===\n")
-    res1 = verifySupportingCredential(credential_msg, credential_pack["credential_id"], cham_hash_pk_sk["pk"], doctor)
+    res1 = verifySupportingCredential(credential_msg, credential_pack, cham_hash_pk_sk["pk"], doctor)
     print(res1)
     # TODO: fix, this should be doctor
     print("CREATING ABE SECRET KEY ===\n")
@@ -217,10 +235,11 @@ def main():
     print("ADAPTING HASH ===\n")
     modified_credential_pack = adaptSupportingCredential(credential_pack["credential_hash"], credential_msg, "stuff", cham_hash_pk_sk["pk"], "Patient", doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address))
     print("VERIFYING HASH ===\n")
-    res2 = verifySupportingCredential("stuff", modified_credential_pack["credential_id"], cham_hash_pk_sk["pk"], verifier)
+    res2 = verifySupportingCredential("stuff", modified_credential_pack, cham_hash_pk_sk["pk"], verifier)
+    print(res2)
 
     print("REVOKE MASTER KEY ===\n")
-    revokeMasterKey(maab_master_pk_sk["pk"], hospital)
+    revokeMasterKey(maab_master_pk_sk["pk"], False, hospital)
 
     print("CHECK FOR MASTER KEY VALIDITY ===\n")
     print(checkMasterKey(maab_master_pk_sk["pk"], hospital))
@@ -228,4 +247,19 @@ def main():
     print("CHECK FOR ABE SECRET KEY VALIDITY ===\n")
     print(checkSecretKey(doctor_abe_secret_key, hospital))
 
-    print(res2)
+    print("REVOKE MASTER KEY AGGRESSIVE ===\n")
+    revokeMasterKey(maab_master_pk_sk["pk"], True, hospital)
+
+    print("CHECK FOR ABE SECRET KEY VALIDITY ===\n")
+    print(checkSecretKey(doctor_abe_secret_key, hospital))
+
+    print("REVOKE Credential Hash ===\n")
+    revokeCredential(modified_credential_pack["credential_hash"], hospital)
+
+    print("VERIFYING HASH ===\n")
+    res3 = verifySupportingCredential("stuff", modified_credential_pack, cham_hash_pk_sk["pk"], verifier)
+    print(res3)
+
+    
+
+    

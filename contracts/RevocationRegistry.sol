@@ -5,6 +5,8 @@ contract revocationRegistry {
     mapping(string => string[]) keys_map;
     mapping(string => bool) AbeMasterKey_exist;
     mapping(string => bool) AbeSecretKey_exist;
+    mapping(string => string[]) credential_map;
+    mapping(string => bool) credential_exist;
 
     function addMasterKey(string memory key) public {
         AbeMasterKey_exist[key] = true;
@@ -16,9 +18,20 @@ contract revocationRegistry {
         keys_map[master_key].push(secret_key);
     }
 
-    function revokeMasterKey(string memory key) public returns(bool) {
-        if (AbeMasterKey_exist[key] == false) return false;
+    function addCredential(string memory redential_hash) public returns(bool) {
+        credential_exist[redential_hash] = true;
+    }
+
+    function addDependentCredential(string memory top_credential_hash, string memory bottom_credential_hash) public returns(bool) {
+        require (credential_exist[top_credential_hash] == true, "top_credential_hash does not exists");
+        require (credential_exist[bottom_credential_hash] == true, "bottom_credential_hash does not exists");
+        credential_map[top_credential_hash].push(bottom_credential_hash);
+    }
+
+    function revokeMasterKey(string memory key, bool aggressive) public returns(bool) {
         AbeMasterKey_exist[key] = false;
+        if (!aggressive) return true;
+
         for (uint i = 0; i < keys_map[key].length; i++) {
             revokeSecretKey(keys_map[key][i]);
         }
@@ -32,6 +45,23 @@ contract revocationRegistry {
         return true;
     }
 
+    function revokeDependentCredential(string memory credential_hash) public returns(bool) {
+        if (credential_exist[credential_hash] == false) return false;
+        for (uint i = 0; i < credential_map[credential_hash].length; i++) {
+            revokeDependentCredential(credential_map[credential_hash][i]);
+            revokeCredential(credential_map[credential_hash][i]);
+        }
+        delete credential_map[credential_hash];
+        revokeCredential(credential_hash);
+        return true;
+    }
+
+    function revokeCredential(string memory credential_hash) public returns(bool) {
+        if (credential_exist[credential_hash] == false) return false;
+        credential_exist[credential_hash] = false;
+        return true;
+    }
+
     function checkMasterKey(string memory key) public view returns(bool) {
         return (AbeMasterKey_exist[key] == true);
     }
@@ -39,5 +69,9 @@ contract revocationRegistry {
     function checkSecretKey(string memory key) public view returns(bool) {
         return (AbeSecretKey_exist[key] == true);
     }     
+
+    function checkCredential(string memory key) public view returns(bool) {
+        return (credential_exist[key] == true);
+    }
 
 }
