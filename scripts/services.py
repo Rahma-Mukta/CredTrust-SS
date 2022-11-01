@@ -140,9 +140,6 @@ def addVote(cred_id, cred_message, cham_pk, role_credential_pack, role_credentia
         json_rc = json.loads(decryped_rc)
         cred_message_json = json.loads(cred_message)
 
-        print(json_rc["credentialSubject"]["role"])
-        print(cred_message_json)
-
         if (json_rc["credentialSubject"]["role"] in cred_message_json[0]["approvalPolicty"]):
             vote_contract.vote(cred_id, {'from': voter})
         else:
@@ -174,7 +171,7 @@ def main():
     cham_hash_pk_sk = createCHKeys()
 
     print("CREATING REGULAR ROLE CREDENTIAL KEYS ===\n")
-    rc_pk, rc_sk = rsa.newkeys(512)
+    rc_sk, rc_pk = rsa.newkeys(512)
     rc_symkey = Fernet.generate_key()
     
     print("CREATING HASH ===\n")
@@ -216,10 +213,10 @@ def main():
     print("BEGIN VOTING PROCESS===\n")
     
     print("ISSING ROLE CREDENTIAL===\n")
-    role_credential_pack = issueRoleCredential(rc_pk, rc_symkey)
+    role_credential_pack = issueRoleCredential(rc_sk, rc_symkey)
 
     print("ADDING VOTE===\n")
-    addVote(doctor_modified_credential_pack["credential_id"], doctor_modified_message, cham_hash_pk_sk["pk"], role_credential_pack, rc_sk, voter)
+    addVote(doctor_modified_credential_pack["credential_id"], doctor_modified_message, cham_hash_pk_sk["pk"], role_credential_pack, rc_pk, voter)
     
     print("TRY SHARE MODIFIED CREDENTIAL WITH VOTING ===\n")
     vote_res2 = tryShareModifiedCredential(doctor_modified_credential_pack["credential_id"], doctor)
