@@ -139,18 +139,21 @@ def main():
     credential_msg = loadCredential("scripts/supporting_credential_example.json")
     # TODO: fix access policy, should be both patient and doctor
     print("CREATING ACTUAL HASH===\n")
-    credential_pack = generateSupportingCredential(credential_msg, "(PATIENT@DOCTORA)", cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
+    credential_pack = generateSupportingCredential(credential_msg, "(DOCTOR@DOCTORA)", cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
     # action: share credential pack, cham_hash_pk and maab_master_pk_sk with DOCTORA
 
     ## == doctor ==
     print("VERIFYING HASH ===\n")
     res1 = verifySupportingCredential(credential_msg, credential_pack["credential_id"], cham_hash_pk_sk["pk"], doctor)
     print(res1)
-    # TODO: fix, this should be doctor
-    print("CREATING ABE SECRET KEY ===\n")
-    doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Patient", "PATIENT@DOCTORA") 
+
+    print("CREATING ABE SECRET KEY FOR DOCTOR===\n")
+    doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Doctor", "DOCTOR@DOCTORA") 
+    
     print("ADAPTING HASH ===\n")
-    modified_credential_pack = adaptSupportingCredential(credential_pack["credential_hash"], credential_msg, "stuff", cham_hash_pk_sk["pk"], "Patient", doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address))
+    modified_credential_pack = adaptSupportingCredential(credential_pack["credential_hash"], credential_msg, "stuff", cham_hash_pk_sk["pk"], "Doctor", doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address))
+    
     print("VERIFYING HASH ===\n")
     res2 = verifySupportingCredential("stuff", modified_credential_pack["credential_id"], cham_hash_pk_sk["pk"], verifier)
-    print(res2)
+    print(res2) 
+    
