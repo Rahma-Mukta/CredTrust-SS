@@ -1,8 +1,10 @@
 from this import d
-from brownie import credentialRegistry, accounts
+from brownie import credentialRegistry, accounts, VoteRegistry
 import uuid
 import requests
 import json
+import rsa
+from cryptography.fernet import Fernet
 
 contractDeployAccount = accounts[0]
 hospital = accounts[1]
@@ -10,8 +12,10 @@ doctor = accounts[2]
 patient = accounts[3]
 verifier = accounts[4]
 relative = accounts[5]
+voter = accounts[6]
 
 cred_contract = credentialRegistry.deploy({'from': contractDeployAccount})
+vote_contract = VoteRegistry.deploy({'from': contractDeployAccount})
 mapch_server = "127.0.0.1:5000"
 head = {"Content-Type": "application/json"}
 
@@ -91,7 +95,7 @@ def verifySupportingCredential(credential_message, credential_id, ch_pk, verifie
     
     return hash_res["is_hash_valid"] == "True"
 
-def adaptSupportingCredential(credential_hash, original_msg, new_msg, cham_pk, gid, abe_secret_key, issuing_account, issuer, holder):
+def adaptSupportingCredential(credential_hash, original_msg, new_msg, cham_pk, gid, abe_secret_key, issuing_account, issuer, holder, voting_required, num_votes_required):
     
     # modify credential
     body = {
@@ -109,6 +113,9 @@ def adaptSupportingCredential(credential_hash, original_msg, new_msg, cham_pk, g
     # add it to credential registry
     cred_id = issueCredential(issuing_account, issuer, holder, hash_modified["h"], hash_modified["r"], hash_modified["e"], hash_modified["N1"])
 
+    # add it to vote registry
+    vote_contract.addCredential(cred_id, voting_required, num_votes_required, {'from': issuing_account})
+
     return {
         "credential_hash" : hash_modified,
         "credential_id" : cred_id
@@ -116,17 +123,47 @@ def adaptSupportingCredential(credential_hash, original_msg, new_msg, cham_pk, g
 
 def loadCredential(file):
     with open(file, "r") as f:
-        return json.dumps(json.load(f))
+        return json.load(f)
+
+## voting
+
+def tryShareModifiedCredential(credential_id, issuer_account):
+    return vote_contract.isVotingCompleted(credential_id, {'from': issuer_account})
+
+def addVote(cred_id, cred_message, cham_pk, role_credential_pack, role_credential_pk, voter):
+    if (verifySupportingCredential(cred_message, cred_id, cham_pk, voter)):
+        
+        decryped_sym_key = rsa.decrypt(role_credential_pack["encryped_key"], role_credential_pk)
+        fernet = Fernet(decryped_sym_key)    
+
+        decryped_rc = fernet.decrypt(role_credential_pack["role_credential"]).decode()
+        json_rc = json.loads(decryped_rc)
+        cred_message_json = json.loads(cred_message)
+
+        print(json_rc["credentialSubject"]["role"])
+        print(cred_message_json)
+
+        if (json_rc["credentialSubject"]["role"] in cred_message_json[0]["approvalPolicty"]):
+            vote_contract.vote(cred_id, {'from': voter})
+        else:
+            print("COULD NOT VOTE BECAUSE VOTER DOES NOT HAVE THE RIGHT ROLE")
+    else:
+        print("COULD NOT VOTE BECAUSE MESSAGE IS NOT CORRECT")
+
+def issueRoleCredential(rc_rsakey, rc_symkey):
+    rc_json = loadCredential("scripts/role_credential_example.json")
+    rc_msg = json.dumps(rc_json)
+
+    fernet = Fernet(rc_symkey)
+    enc_rc = fernet.encrypt(rc_msg.encode())
+    enc_key = rsa.encrypt(rc_symkey, rc_rsakey)
+
+    return {
+        "encryped_key" : enc_key,
+        "role_credential" : enc_rc
+    }
 
 def main():
-
-    # id = issueCredential(hospital, "did:" + str(hospital.address), "did:" + str(doctor.address), "somehash", "somer", "some e", "somen1")
-    # print("id is ===")
-    # print(id)
-
-    # ret = getCredential(id, verifier)
-    # print("stuff gotten from registry is ===")
-    # print(ret)
 
     ##### SCENARIO 1
     
@@ -135,9 +172,16 @@ def main():
     maab_master_pk_sk = createABEAuthority("DOCTORA")
     print("CREATING CH KEYS ===\n")
     cham_hash_pk_sk = createCHKeys()
+
+    print("CREATING REGULAR ROLE CREDENTIAL KEYS ===\n")
+    rc_pk, rc_sk = rsa.newkeys(512)
+    rc_symkey = Fernet.generate_key()
+    
     print("CREATING HASH ===\n")
     print("LOADING HASH MESSAGE===\n")
-    credential_msg = loadCredential("scripts/supporting_credential_example.json")
+    credential_msg_json = loadCredential("scripts/supporting_credential_example.json")
+    credential_msg = json.dumps(credential_msg_json)
+    original_msg = json.dumps(credential_msg_json)
 
     print("CREATING ACTUAL HASH===\n")
     credential_pack = generateSupportingCredential(credential_msg, "(DOCTOR@DOCTORA or PATIENT@DOCTORA)", cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
@@ -152,22 +196,42 @@ def main():
     doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Doctor", "DOCTOR@DOCTORA") 
     
     print("ADAPTING HASH (Doctor) ===\n")
-    doctor_modified_credential_pack = adaptSupportingCredential(credential_pack["credential_hash"], credential_msg, "stuff", cham_hash_pk_sk["pk"], "Doctor", doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address))
+    credential_msg_json[1]["credentialSubject"]["permissions"] = ["some permissions"]
+    doctor_modified_message = json.dumps(credential_msg_json)
+    doctor_modified_credential_pack = adaptSupportingCredential(credential_pack["credential_hash"], original_msg, doctor_modified_message, cham_hash_pk_sk["pk"], "Doctor", doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address), True, 1)
     
     print("VERIFYING HASH (Doctor) ===\n")
-    res2 = verifySupportingCredential("stuff", doctor_modified_credential_pack["credential_id"], cham_hash_pk_sk["pk"], verifier)
+    res2 = verifySupportingCredential(doctor_modified_message, doctor_modified_credential_pack["credential_id"], cham_hash_pk_sk["pk"], verifier)
     print(res2) 
 
     print("CREATING ABE SECRET KEY FOR PATIENT 1===\n")
     patient1_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Patient1", "PATIENT@DOCTORA")
 
-    # action: share key and credential with patient
+    # action flow: share key and credential with patient
+
+    print("TRY SHARE MODIFIED CREDENTIAL WITHOUT VOTING ===\n")
+    vote_res1 = tryShareModifiedCredential(doctor_modified_credential_pack["credential_id"], doctor)
+    print(vote_res1)
+
+    print("BEGIN VOTING PROCESS===\n")
+    
+    print("ISSING ROLE CREDENTIAL===\n")
+    role_credential_pack = issueRoleCredential(rc_pk, rc_symkey)
+
+    print("ADDING VOTE===\n")
+    addVote(doctor_modified_credential_pack["credential_id"], doctor_modified_message, cham_hash_pk_sk["pk"], role_credential_pack, rc_sk, voter)
+    
+    print("TRY SHARE MODIFIED CREDENTIAL WITH VOTING ===\n")
+    vote_res2 = tryShareModifiedCredential(doctor_modified_credential_pack["credential_id"], doctor)
+    print(vote_res2)
 
     ## == relative ==
     print("ADAPTING HASH (Patient 1) ===\n")
-    patient_modified_credential_pack = adaptSupportingCredential(doctor_modified_credential_pack["credential_hash"], "stuff", "stuff2", cham_hash_pk_sk["pk"], "Patient1", patient1_abe_secret_key, patient, "did:" + str(patient.address), "did:" + str(relative.address))
+    credential_msg_json[2]["credentialSubject"]["permissions"] = ["some relative permissions"]
+    patient_modified_message = json.dumps(credential_msg_json)
+    patient_modified_credential_pack = adaptSupportingCredential(doctor_modified_credential_pack["credential_hash"], doctor_modified_message, patient_modified_message, cham_hash_pk_sk["pk"], "Patient1", patient1_abe_secret_key, patient, "did:" + str(patient.address), "did:" + str(relative.address), False, 0)
 
     print("VERIFYING HASH (Relative/Verifier) ===\n")
-    res3 = verifySupportingCredential("stuff2", patient_modified_credential_pack["credential_id"], cham_hash_pk_sk["pk"], verifier)
+    res3 = verifySupportingCredential(patient_modified_message, patient_modified_credential_pack["credential_id"], cham_hash_pk_sk["pk"], verifier)
     print(res3) 
     
