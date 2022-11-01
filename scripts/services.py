@@ -9,6 +9,7 @@ hospital = accounts[1]
 doctor = accounts[2]
 patient = accounts[3]
 verifier = accounts[4]
+relative = accounts[5]
 
 cred_contract = credentialRegistry.deploy({'from': contractDeployAccount})
 mapch_server = "127.0.0.1:5000"
@@ -137,9 +138,9 @@ def main():
     print("CREATING HASH ===\n")
     print("LOADING HASH MESSAGE===\n")
     credential_msg = loadCredential("scripts/supporting_credential_example.json")
-    # TODO: fix access policy, should be both patient and doctor
+
     print("CREATING ACTUAL HASH===\n")
-    credential_pack = generateSupportingCredential(credential_msg, "(DOCTOR@DOCTORA)", cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
+    credential_pack = generateSupportingCredential(credential_msg, "(DOCTOR@DOCTORA or PATIENT@DOCTORA)", cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
     # action: share credential pack, cham_hash_pk and maab_master_pk_sk with DOCTORA
 
     ## == doctor ==
@@ -150,10 +151,23 @@ def main():
     print("CREATING ABE SECRET KEY FOR DOCTOR===\n")
     doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Doctor", "DOCTOR@DOCTORA") 
     
-    print("ADAPTING HASH ===\n")
-    modified_credential_pack = adaptSupportingCredential(credential_pack["credential_hash"], credential_msg, "stuff", cham_hash_pk_sk["pk"], "Doctor", doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address))
+    print("ADAPTING HASH (Doctor) ===\n")
+    doctor_modified_credential_pack = adaptSupportingCredential(credential_pack["credential_hash"], credential_msg, "stuff", cham_hash_pk_sk["pk"], "Doctor", doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address))
     
-    print("VERIFYING HASH ===\n")
-    res2 = verifySupportingCredential("stuff", modified_credential_pack["credential_id"], cham_hash_pk_sk["pk"], verifier)
+    print("VERIFYING HASH (Doctor) ===\n")
+    res2 = verifySupportingCredential("stuff", doctor_modified_credential_pack["credential_id"], cham_hash_pk_sk["pk"], verifier)
     print(res2) 
+
+    print("CREATING ABE SECRET KEY FOR PATIENT 1===\n")
+    patient1_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Patient1", "PATIENT@DOCTORA")
+
+    # action: share key and credential with patient
+
+    ## == relative ==
+    print("ADAPTING HASH (Patient 1) ===\n")
+    patient_modified_credential_pack = adaptSupportingCredential(doctor_modified_credential_pack["credential_hash"], "stuff", "stuff2", cham_hash_pk_sk["pk"], "Patient1", patient1_abe_secret_key, patient, "did:" + str(patient.address), "did:" + str(relative.address))
+
+    print("VERIFYING HASH (Relative/Verifier) ===\n")
+    res3 = verifySupportingCredential("stuff2", patient_modified_credential_pack["credential_id"], cham_hash_pk_sk["pk"], verifier)
+    print(res3) 
     
