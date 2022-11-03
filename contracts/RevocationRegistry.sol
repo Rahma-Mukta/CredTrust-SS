@@ -7,6 +7,7 @@ contract revocationRegistry {
     mapping(string => bool) AbeSecretKey_exist;
     mapping(string => string[]) credential_map;
     mapping(string => bool) credential_exist;
+    mapping(string => bool) ch_hash_exist;
 
     function addMasterKey(string memory key) public {
         AbeMasterKey_exist[key] = true;
@@ -28,6 +29,10 @@ contract revocationRegistry {
         credential_map[top_credential_hash].push(bottom_credential_hash);
     }
 
+    function addHashKey(string memory key) public {
+        ch_hash_exist[key] = true;
+    }
+
     function revokeMasterKey(string memory key, bool aggressive) public returns(bool) {
         AbeMasterKey_exist[key] = false;
         if (!aggressive) return true;
@@ -45,10 +50,10 @@ contract revocationRegistry {
         return true;
     }
 
-    function revokeDependentCredential(string memory credential_hash) public returns(bool) {
+    function revokeDependentCredential(string memory credential_hash, bool aggressive) public returns(bool) {
         if (credential_exist[credential_hash] == false) return false;
         for (uint i = 0; i < credential_map[credential_hash].length; i++) {
-            revokeDependentCredential(credential_map[credential_hash][i]);
+            revokeDependentCredential(credential_map[credential_hash][i], aggressive);
             revokeCredential(credential_map[credential_hash][i]);
         }
         delete credential_map[credential_hash];
@@ -62,6 +67,10 @@ contract revocationRegistry {
         return true;
     }
 
+    function revokeHashKey(string memory key) public {
+        ch_hash_exist[key] = false;
+    }
+
     function checkMasterKey(string memory key) public view returns(bool) {
         return (AbeMasterKey_exist[key] == true);
     }
@@ -72,6 +81,10 @@ contract revocationRegistry {
 
     function checkCredential(string memory key) public view returns(bool) {
         return (credential_exist[key] == true);
+    }
+
+    function checkHashKey(string memory key) public view returns(bool) {
+        return (ch_hash_exist[key] == true);
     }
 
 }
