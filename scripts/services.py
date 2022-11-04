@@ -105,18 +105,47 @@ def createHash(cham_pk, cham_sk, msg, hash_func, abe_master_pk, access_policy):
     h = {'h': xi['h'], 'r': xi['r'], 'cipher':ct, 'N1': xi['N1'], 'e': xi['e']}
     return h
 
-def generateSupportingCredential(credential, hash_func, access_policy, ch_pk, ch_sk, authority_abe_pk, issuing_account, official_issuer, holder):
-    hash = createHash(ch_pk, ch_sk, credential, hash_func, authority_abe_pk, access_policy)
+def generateAndIssueSupportingCredential(supporting_credential_msg, hash_funcs, access_policy, ch_pk, ch_sk, authority_abe_pk, issuing_account, official_issuer, holder):
 
-    cred_id = issueCredential(issuing_account, official_issuer, holder, hash["h"], hash["r"], hash["e"], hash["N1"])
-
-    return {
-        "credential_hash" : hash,
-        "credential_id" : cred_id
+    block1_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[0]), hash_funcs[0], authority_abe_pk, access_policy)
+    block2_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[1]), hash_funcs[1], authority_abe_pk, access_policy)
+    block3_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[2]), hash_funcs[2], authority_abe_pk, access_policy)
+    
+    block1_cred_id = issueCredential(issuing_account, official_issuer, holder, block1_original_hash["h"], block1_original_hash["r"], block1_original_hash["e"], block1_original_hash["N1"])
+    block2_cred_id = issueCredential(issuing_account, official_issuer, holder, block2_original_hash["h"], block2_original_hash["r"], block2_original_hash["e"], block2_original_hash["N1"])
+    block3_cred_id = issueCredential(issuing_account, official_issuer, holder, block3_original_hash["h"], block3_original_hash["r"], block3_original_hash["e"], block3_original_hash["N1"])    
+    
+    supporting_credential = {
+        "block1" : {
+            "msg" : json.dumps(supporting_credential_msg[0]),
+            "hash" : block1_original_hash,
+            "id" : block1_cred_id
+        },
+        "block2" : {
+            "msg" : json.dumps(supporting_credential_msg[1]),
+            "hash" : block2_original_hash,
+            "id" : block2_cred_id
+        },
+        "block3" : {
+            "msg" : json.dumps(supporting_credential_msg[2]),
+            "hash" : block3_original_hash,
+            "id" : block3_cred_id
+        }
     }
 
-def verifySupportingCredential(credential_message, hash, ch_pk, hash_func):
-    return hash_func.hashcheck(ch_pk, credential_message, hash)
+    return supporting_credential
+
+def verifySupportingCredential(supporting_credential, ch_pk, hash_funcs):
+    
+    chamHash1 = hash_funcs[0]
+    chamHash2 = hash_funcs[1]
+    chamHash3 = hash_funcs[2]
+
+    block1_verify_res = chamHash1.hashcheck(ch_pk, supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"])
+    block2_verify_res = chamHash2.hashcheck(ch_pk, supporting_credential["block2"]["msg"], supporting_credential["block2"]["hash"])
+    block3_verify_res = chamHash3.hashcheck(ch_pk, supporting_credential["block3"]["msg"], supporting_credential["block3"]["hash"])
+    
+    return (block1_verify_res and block2_verify_res and block3_verify_res)
 
 def collision(original_msg, new_msg, h, hash_func, ch_pk, abe_secret_key, gid):
     
@@ -155,6 +184,25 @@ def adaptSupportingCredential(credential_hash, original_msg, new_msg, cham_pk, h
         "credential_hash" : hash_modified,
         "credential_id" : cred_id
     }
+
+def adaptSupportingCredentialBlock(supporting_credential, block, hash_func, ch_pk, abe_secret_key, gid):
+    
+    block_original = json.loads(supporting_credential[block]["msg"])
+    block_modified = block_original
+    block_modified["credentialSubject"]["permissions"] = ["some permissions"]
+    block_modified = json.dumps(block_modified)
+
+    print(block_modified)
+    
+    hash_modified = collision(json.dumps(block_original), block_modified, supporting_credential[block]["hash"], hash_func, ch_pk, abe_secret_key, gid)
+    
+    modified_supporting_credential = supporting_credential
+
+    modified_supporting_credential[block]["hash"] = hash_modified
+    modified_supporting_credential[block]["id"] = "N/A"
+    modified_supporting_credential[block]["msg"] = block_modified
+
+    return modified_supporting_credential
 
 def loadCredential(file):
     with open(file, "r") as f:
@@ -214,56 +262,26 @@ def main():
     
     # TODO: role credential
 
-    print("CREATING HASH ===\n")
-    print("LOADING HASH MESSAGE===\n")
+    print("CREATING AND ISSUING SUPPORTING CREDENTIAL ===\n")
     credential_msg_json = loadCredential("supporting_credential_example.json")
-    block1_original = json.dumps(credential_msg_json[0])
-    block2_original = json.dumps(credential_msg_json[1])
-    block3_original = json.dumps(credential_msg_json[2])
-
-    print("CREATING ACTUAL HASH===\n")
-    block1_original_hash = createHash(cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], block1_original, chamHash1, maab_master_pk_sk["pk"], "(DOCTOR@DOCTORA or PATIENT@DOCTORA)")
-    block2_original_hash = createHash(cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], block2_original, chamHash2, maab_master_pk_sk["pk"], "(DOCTOR@DOCTORA or PATIENT@DOCTORA)")
-    block3_original_hash = createHash(cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], block3_original, chamHash3, maab_master_pk_sk["pk"], "(DOCTOR@DOCTORA or PATIENT@DOCTORA)")
-    
-    print("ISSUING CREDENTIAL (HASHES)===\n")
-    block1_cred_id = issueCredential(hospital, "did:" + str(hospital.address), "did:" + str(doctor.address), block1_original_hash["h"], block1_original_hash["r"], block1_original_hash["e"], block1_original_hash["N1"])
-    block2_cred_id = issueCredential(hospital, "did:" + str(hospital.address), "did:" + str(doctor.address), block2_original_hash["h"], block2_original_hash["r"], block2_original_hash["e"], block2_original_hash["N1"])
-    block3_cred_id = issueCredential(hospital, "did:" + str(hospital.address), "did:" + str(doctor.address), block3_original_hash["h"], block3_original_hash["r"], block3_original_hash["e"], block3_original_hash["N1"])
-
-    supporting_credential = {
-        "block1" : {
-            "msg" : block1_original,
-            "hash" : block1_original_hash,
-            "id" : block1_cred_id
-        },
-        "block2" : {
-            "msg" : block2_original,
-            "hash" : block2_original_hash,
-            "id" : block2_cred_id
-        },
-        "block3" : {
-            "msg" : block3_original,
-            "hash" : block3_original_hash,
-            "id" : block3_cred_id
-        }
-    }
+    supporting_credential = generateAndIssueSupportingCredential(credential_msg_json, [chamHash1, chamHash2 , chamHash3], "(DOCTOR@DOCTORA or PATIENT@DOCTORA)",
+                                                                 cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], 
+                                                                 hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
 
     # action: share credential pack, cham_hash_pk and maab_master_pk_sk with DOCTORA
 
     # == doctor ==
     print("VERIFYING SUPPORTING CREDENTIAL ===\n")
-    block1_original_verify_res = verifySupportingCredential(supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"], cham_hash_pk_sk["pk"], chamHash1)
-    block2_original_verify_res = verifySupportingCredential(supporting_credential["block2"]["msg"], supporting_credential["block2"]["hash"], cham_hash_pk_sk["pk"], chamHash2)
-    block3_original_verify_res = verifySupportingCredential(supporting_credential["block3"]["msg"], supporting_credential["block3"]["hash"], cham_hash_pk_sk["pk"], chamHash3)
-    print(block1_original_verify_res)
-    print(block2_original_verify_res)
-    print(block3_original_verify_res)
+    print(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3]))
 
     print("CREATING ABE SECRET KEY FOR DOCTOR===\n")
     doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Doctor", ["DOCTOR@DOCTORA"]) 
 
     print("ADAPTING BLOCK 2 HASH (Doctor) ===\n")
+    #doctor_modified_supporting_credential = adaptSupportingCredentialBlock(supporting_credential, "block2", chamHash2, cham_hash_pk_sk["pk"], doctor_abe_secret_key, "Doctor")
+
+    # TODO: add modified credential to credential registry, voting registry
+
     block2_doctor_modified = credential_msg_json[1]
     block2_doctor_modified["credentialSubject"]["permissions"] = ["some permissions"]
     block2_doctor_modified = json.dumps(block2_doctor_modified)
@@ -274,12 +292,7 @@ def main():
     supporting_credential["block2"]["msg"] = block2_doctor_modified
 
     print("VERIFYING DOCTOR MODIFIED SUPPORTING CREDENTIAL (Doctor) ===\n")
-    block1_doctor_modified_verify_res = verifySupportingCredential(supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"], cham_hash_pk_sk["pk"], chamHash1)
-    block2_doctor_modified_verify_res = verifySupportingCredential(supporting_credential["block2"]["msg"], supporting_credential["block2"]["hash"], cham_hash_pk_sk["pk"], chamHash2)
-    block3_doctor_modified_verify_res = verifySupportingCredential(supporting_credential["block3"]["msg"], supporting_credential["block3"]["hash"], cham_hash_pk_sk["pk"], chamHash3)
-    print(block1_doctor_modified_verify_res)
-    print(block2_doctor_modified_verify_res)
-    print(block3_doctor_modified_verify_res)
+    print(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3]))
 
     print("CREATING ABE SECRET KEY FOR PATIENT 1===\n")
     patient1_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Patient1", ["PATIENT@DOCTORA"])
@@ -290,6 +303,8 @@ def main():
 
     # == Patient ==
     print("ADAPTING HASH (Patient 1) ===\n")
+    #patient_modified_supporting_credential = adaptSupportingCredentialBlock(supporting_credential, "block3", chamHash3, cham_hash_pk_sk["pk"], patient1_abe_secret_key, "Patient1")
+
     block3_patient_modified = credential_msg_json[2]
     block3_patient_modified["credentialSubject"]["permissions"] = ["some permissions"]
     block3_patient_modified = json.dumps(block3_patient_modified)
@@ -302,12 +317,7 @@ def main():
     # == Relative ==
 
     print("VERIFYING HASH (Relative/Verifier) ===\n")
-    block1_patient_modified_verify_res = verifySupportingCredential(supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"], cham_hash_pk_sk["pk"], chamHash1)
-    block2_patient_modified_verify_res = verifySupportingCredential(supporting_credential["block2"]["msg"], supporting_credential["block2"]["hash"], cham_hash_pk_sk["pk"], chamHash2)
-    block3_patient_modified_verify_res = verifySupportingCredential(supporting_credential["block3"]["msg"], supporting_credential["block3"]["hash"], cham_hash_pk_sk["pk"], chamHash3)
-    print(block1_patient_modified_verify_res)
-    print(block2_patient_modified_verify_res)
-    print(block3_patient_modified_verify_res)
+    print(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3]))
 
     ######################
 
