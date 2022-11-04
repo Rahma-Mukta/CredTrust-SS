@@ -115,7 +115,7 @@ def generateSupportingCredential(credential, hash_func, access_policy, ch_pk, ch
         "credential_id" : cred_id
     }
 
-def verifySupportingCredential(credential_message, hash, ch_pk, verifier, hash_func):
+def verifySupportingCredential(credential_message, hash, ch_pk, hash_func):
     return hash_func.hashcheck(ch_pk, credential_message, hash)
 
 def collision(original_msg, new_msg, h, hash_func, ch_pk, abe_secret_key, gid):
@@ -198,76 +198,186 @@ def issueRoleCredential(rc_rsakey, rc_symkey):
 
 def main():
 
-    ##### SCENARIO 1
-
     # == hospital ==
     print("CREATING ABE AUTHORITY ===\n")
     maab_master_pk_sk = createABEAuthority("DOCTORA")
+
     print("CREATING CH KEYS ===\n")
     chamHash1 = chamwithemp.Chamwithemp()
     cham_hash_pk_sk = createCHKeys(chamHash1)
 
-    print("CREATING REGULAR ROLE CREDENTIAL KEYS ===\n")
-    rc_sk, rc_pk = rsa.newkeys(512)
-    rc_symkey = Fernet.generate_key()
+    chamHash2 = chamwithemp.Chamwithemp()
+    _ = createCHKeys(chamHash2)
+
+    chamHash3 = chamwithemp.Chamwithemp()
+    _ = createCHKeys(chamHash3)
     
+    # TODO: role credential
+
     print("CREATING HASH ===\n")
     print("LOADING HASH MESSAGE===\n")
     credential_msg_json = loadCredential("supporting_credential_example.json")
-    credential_msg = json.dumps(credential_msg_json)
-    original_msg = json.dumps(credential_msg_json)
+    block1_original = json.dumps(credential_msg_json[0])
+    block2_original = json.dumps(credential_msg_json[1])
+    block3_original = json.dumps(credential_msg_json[2])
 
     print("CREATING ACTUAL HASH===\n")
-    credential_pack = generateSupportingCredential(credential_msg, chamHash1, "(DOCTOR@DOCTORA or PATIENT@DOCTORA)", cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
+    block1_original_hash = createHash(cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], block1_original, chamHash1, maab_master_pk_sk["pk"], "(DOCTOR@DOCTORA or PATIENT@DOCTORA)")
+    block2_original_hash = createHash(cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], block2_original, chamHash2, maab_master_pk_sk["pk"], "(DOCTOR@DOCTORA or PATIENT@DOCTORA)")
+    block3_original_hash = createHash(cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], block3_original, chamHash3, maab_master_pk_sk["pk"], "(DOCTOR@DOCTORA or PATIENT@DOCTORA)")
+    
+    print("ISSUING CREDENTIAL (HASHES)===\n")
+    block1_cred_id = issueCredential(hospital, "did:" + str(hospital.address), "did:" + str(doctor.address), block1_original_hash["h"], block1_original_hash["r"], block1_original_hash["e"], block1_original_hash["N1"])
+    block2_cred_id = issueCredential(hospital, "did:" + str(hospital.address), "did:" + str(doctor.address), block2_original_hash["h"], block2_original_hash["r"], block2_original_hash["e"], block2_original_hash["N1"])
+    block3_cred_id = issueCredential(hospital, "did:" + str(hospital.address), "did:" + str(doctor.address), block3_original_hash["h"], block3_original_hash["r"], block3_original_hash["e"], block3_original_hash["N1"])
+
+    supporting_credential = {
+        "block1" : {
+            "msg" : block1_original,
+            "hash" : block1_original_hash,
+            "id" : block1_cred_id
+        },
+        "block2" : {
+            "msg" : block2_original,
+            "hash" : block2_original_hash,
+            "id" : block2_cred_id
+        },
+        "block3" : {
+            "msg" : block3_original,
+            "hash" : block3_original_hash,
+            "id" : block3_cred_id
+        }
+    }
+
     # action: share credential pack, cham_hash_pk and maab_master_pk_sk with DOCTORA
 
-    ## == doctor ==
-    print("VERIFYING HASH ===\n")
-    res1 = verifySupportingCredential(credential_msg, credential_pack["credential_hash"], cham_hash_pk_sk["pk"], doctor, chamHash1)
-    print(res1)
+    # == doctor ==
+    print("VERIFYING SUPPORTING CREDENTIAL ===\n")
+    block1_original_verify_res = verifySupportingCredential(supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"], cham_hash_pk_sk["pk"], chamHash1)
+    block2_original_verify_res = verifySupportingCredential(supporting_credential["block2"]["msg"], supporting_credential["block2"]["hash"], cham_hash_pk_sk["pk"], chamHash2)
+    block3_original_verify_res = verifySupportingCredential(supporting_credential["block3"]["msg"], supporting_credential["block3"]["hash"], cham_hash_pk_sk["pk"], chamHash3)
+    print(block1_original_verify_res)
+    print(block2_original_verify_res)
+    print(block3_original_verify_res)
 
     print("CREATING ABE SECRET KEY FOR DOCTOR===\n")
     doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Doctor", ["DOCTOR@DOCTORA"]) 
-    
-    print("ADAPTING HASH (Doctor) ===\n")
-    credential_msg_json[1]["credentialSubject"]["permissions"] = ["some permissions"]
-    doctor_modified_message = json.dumps(credential_msg_json)
-    doctor_modified_credential_pack = adaptSupportingCredential(credential_pack["credential_hash"], original_msg, doctor_modified_message, cham_hash_pk_sk["pk"], chamHash1, doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address), True, 1, "Doctor")
-    
-    print("VERIFYING HASH (Doctor) ===\n")
-    res2 = verifySupportingCredential(doctor_modified_message, doctor_modified_credential_pack["credential_hash"], cham_hash_pk_sk["pk"], verifier, chamHash1)
-    print(res2)
+
+    print("ADAPTING BLOCK 2 HASH (Doctor) ===\n")
+    block2_doctor_modified = credential_msg_json[1]
+    block2_doctor_modified["credentialSubject"]["permissions"] = ["some permissions"]
+    block2_doctor_modified = json.dumps(block2_doctor_modified)
+    block2_doctor_modified_pack = adaptSupportingCredential(supporting_credential["block2"]["hash"], supporting_credential["block2"]["msg"], block2_doctor_modified, cham_hash_pk_sk["pk"], chamHash2, doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address), True, 1, "Doctor")
+
+    supporting_credential["block2"]["hash"] = block2_doctor_modified_pack["credential_hash"]
+    supporting_credential["block2"]["id"] = block2_doctor_modified_pack["credential_id"]
+    supporting_credential["block2"]["msg"] = block2_doctor_modified
+
+    print("VERIFYING DOCTOR MODIFIED SUPPORTING CREDENTIAL (Doctor) ===\n")
+    block1_doctor_modified_verify_res = verifySupportingCredential(supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"], cham_hash_pk_sk["pk"], chamHash1)
+    block2_doctor_modified_verify_res = verifySupportingCredential(supporting_credential["block2"]["msg"], supporting_credential["block2"]["hash"], cham_hash_pk_sk["pk"], chamHash2)
+    block3_doctor_modified_verify_res = verifySupportingCredential(supporting_credential["block3"]["msg"], supporting_credential["block3"]["hash"], cham_hash_pk_sk["pk"], chamHash3)
+    print(block1_doctor_modified_verify_res)
+    print(block2_doctor_modified_verify_res)
+    print(block3_doctor_modified_verify_res)
 
     print("CREATING ABE SECRET KEY FOR PATIENT 1===\n")
     patient1_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Patient1", ["PATIENT@DOCTORA"])
 
     # action flow: share key and credential with patient
 
-    print("TRY SHARE MODIFIED CREDENTIAL WITHOUT VOTING ===\n")
-    vote_res1 = tryShareModifiedCredential(doctor_modified_credential_pack["credential_id"], doctor)
-    print(vote_res1)
+    # TODO: voting
 
-    print("BEGIN VOTING PROCESS===\n")
-    
-    print("ISSING ROLE CREDENTIAL===\n")
-    role_credential_pack = issueRoleCredential(rc_sk, rc_symkey)
-
-    print("ADDING VOTE===\n")
-    addVote(doctor_modified_credential_pack["credential_hash"], doctor_modified_credential_pack["credential_id"], doctor_modified_message, cham_hash_pk_sk["pk"], role_credential_pack, rc_pk, voter, chamHash1)
-    
-    print("TRY SHARE MODIFIED CREDENTIAL WITH VOTING ===\n")
-    vote_res2 = tryShareModifiedCredential(doctor_modified_credential_pack["credential_id"], doctor)
-    print(vote_res2)
-
-    ## == Patient ==
+    # == Patient ==
     print("ADAPTING HASH (Patient 1) ===\n")
-    credential_msg_json[2]["credentialSubject"]["permissions"] = ["some relative permissions"]
-    patient_modified_message = json.dumps(credential_msg_json)
-    patient_modified_credential_pack = adaptSupportingCredential(doctor_modified_credential_pack["credential_hash"], doctor_modified_message, patient_modified_message, cham_hash_pk_sk["pk"], chamHash1, patient1_abe_secret_key, patient, "did:" + str(patient.address), "did:" + str(relative.address), False, 0, "Patient1")
+    block3_patient_modified = credential_msg_json[2]
+    block3_patient_modified["credentialSubject"]["permissions"] = ["some permissions"]
+    block3_patient_modified = json.dumps(block3_patient_modified)
+    block3_patient_modified_pack = adaptSupportingCredential(supporting_credential["block3"]["hash"], supporting_credential["block3"]["msg"], block3_patient_modified, cham_hash_pk_sk["pk"], chamHash3, patient1_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address), True, 1, "Patient1")
 
-    ## == Relative ==
+    supporting_credential["block3"]["hash"] = block3_patient_modified_pack["credential_hash"]
+    supporting_credential["block3"]["id"] = block3_patient_modified_pack["credential_id"]
+    supporting_credential["block3"]["msg"] = block3_patient_modified
+
+    # == Relative ==
 
     print("VERIFYING HASH (Relative/Verifier) ===\n")
-    res3 = verifySupportingCredential(patient_modified_message, patient_modified_credential_pack["credential_hash"], cham_hash_pk_sk["pk"], verifier, chamHash1)
-    print(res3)
+    block1_patient_modified_verify_res = verifySupportingCredential(supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"], cham_hash_pk_sk["pk"], chamHash1)
+    block2_patient_modified_verify_res = verifySupportingCredential(supporting_credential["block2"]["msg"], supporting_credential["block2"]["hash"], cham_hash_pk_sk["pk"], chamHash2)
+    block3_patient_modified_verify_res = verifySupportingCredential(supporting_credential["block3"]["msg"], supporting_credential["block3"]["hash"], cham_hash_pk_sk["pk"], chamHash3)
+    print(block1_patient_modified_verify_res)
+    print(block2_patient_modified_verify_res)
+    print(block3_patient_modified_verify_res)
+
+    ######################
+
+    # # == hospital ==
+    # print("CREATING ABE AUTHORITY ===\n")
+    # maab_master_pk_sk = createABEAuthority("DOCTORA")
+    # print("CREATING CH KEYS ===\n")
+    # chamHash1 = chamwithemp.Chamwithemp()
+    # cham_hash_pk_sk = createCHKeys(chamHash1)
+
+    # print("CREATING REGULAR ROLE CREDENTIAL KEYS ===\n")
+    # rc_sk, rc_pk = rsa.newkeys(512)
+    # rc_symkey = Fernet.generate_key()
     
+    # print("CREATING HASH ===\n")
+    # print("LOADING HASH MESSAGE===\n")
+    # credential_msg_json = loadCredential("supporting_credential_example.json")
+    # credential_msg = json.dumps(credential_msg_json)
+    # original_msg = json.dumps(credential_msg_json)
+
+    # print("CREATING ACTUAL HASH===\n")
+    # credential_pack = generateSupportingCredential(credential_msg, chamHash1, "(DOCTOR@DOCTORA or PATIENT@DOCTORA)", cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
+    # # action: share credential pack, cham_hash_pk and maab_master_pk_sk with DOCTORA
+
+    # ## == doctor ==
+    # print("VERIFYING HASH ===\n")
+    # res1 = verifySupportingCredential(credential_msg, credential_pack["credential_hash"], cham_hash_pk_sk["pk"], doctor, chamHash1)
+    # print(res1)
+
+    # print("CREATING ABE SECRET KEY FOR DOCTOR===\n")
+    # doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Doctor", ["DOCTOR@DOCTORA"]) 
+    
+    # print("ADAPTING HASH (Doctor) ===\n")
+    # credential_msg_json[1]["credentialSubject"]["permissions"] = ["some permissions"]
+    # doctor_modified_message = json.dumps(credential_msg_json)
+    # doctor_modified_credential_pack = adaptSupportingCredential(credential_pack["credential_hash"], original_msg, doctor_modified_message, cham_hash_pk_sk["pk"], chamHash1, doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address), True, 1, "Doctor")
+    
+    # print("VERIFYING HASH (Doctor) ===\n")
+    # res2 = verifySupportingCredential(doctor_modified_message, doctor_modified_credential_pack["credential_hash"], cham_hash_pk_sk["pk"], verifier, chamHash1)
+    # print(res2)
+
+    # print("CREATING ABE SECRET KEY FOR PATIENT 1===\n")
+    # patient1_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Patient1", ["PATIENT@DOCTORA"])
+
+    # # action flow: share key and credential with patient
+
+    # print("TRY SHARE MODIFIED CREDENTIAL WITHOUT VOTING ===\n")
+    # vote_res1 = tryShareModifiedCredential(doctor_modified_credential_pack["credential_id"], doctor)
+    # print(vote_res1)
+
+    # print("BEGIN VOTING PROCESS===\n")
+    
+    # print("ISSING ROLE CREDENTIAL===\n")
+    # role_credential_pack = issueRoleCredential(rc_sk, rc_symkey)
+
+    # print("ADDING VOTE===\n")
+    # addVote(doctor_modified_credential_pack["credential_hash"], doctor_modified_credential_pack["credential_id"], doctor_modified_message, cham_hash_pk_sk["pk"], role_credential_pack, rc_pk, voter, chamHash1)
+    
+    # print("TRY SHARE MODIFIED CREDENTIAL WITH VOTING ===\n")
+    # vote_res2 = tryShareModifiedCredential(doctor_modified_credential_pack["credential_id"], doctor)
+    # print(vote_res2)
+
+    # ## == Patient ==
+    # print("ADAPTING HASH (Patient 1) ===\n")
+    # credential_msg_json[2]["credentialSubject"]["permissions"] = ["some relative permissions"]
+    # patient_modified_message = json.dumps(credential_msg_json)
+    # patient_modified_credential_pack = adaptSupportingCredential(doctor_modified_credential_pack["credential_hash"], doctor_modified_message, patient_modified_message, cham_hash_pk_sk["pk"], chamHash1, patient1_abe_secret_key, patient, "did:" + str(patient.address), "did:" + str(relative.address), False, 0, "Patient1")
+
+    # ## == Relative ==
+
+    # print("VERIFYING HASH (Relative/Verifier) ===\n")
+    # res3 = verifySupportingCredential(patient_modified_message, patient_modified_credential_pack["credential_hash"], cham_hash_pk_sk["pk"], verifier, chamHash1)
+    # print(res3)
