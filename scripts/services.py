@@ -22,6 +22,7 @@ patient = accounts[3]
 verifier = accounts[4]
 relative = accounts[5]
 voter = accounts[6]
+hospital_rc = accounts[7]
 
 cred_contract = credentialRegistry.deploy({'from': contractDeployAccount})
 vote_contract = VoteRegistry.deploy({'from': contractDeployAccount})
@@ -249,7 +250,15 @@ def issueAdaptedSupportingCredential(supporting_credential, block, issuer_accoun
 def checkVoting(credential_id, issuer_account):
     return vote_contract.isVotingCompleted(credential_id, {'from': issuer_account})
 
-def addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, role_credential_pk, block, voting_account, issuer_account, issuer, holder, ch_pk):
+def addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, role_credential_pk, block, voting_account, issuer_account, issuer, holder, ch_pk, rc_issuer):
+    
+    # role credential
+    concat_rc_keys = str(role_credential_pk) + "_" + str(role_credential_pack["encryped_key"])
+
+    if (issuer_contract.checkIssuer(rc_issuer, "RSA_FERMAT", concat_rc_keys, {'from': accounts[0]}) == False):
+        print("ROLE CREDENTIAL KEYS ARE NOT VALID")
+        return False
+    
     decryped_sym_key = rsa.decrypt(role_credential_pack["encryped_key"], role_credential_pk)
     fernet = Fernet(decryped_sym_key)    
 
@@ -267,16 +276,23 @@ def addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, r
         print("COULD NOT VOTE BECAUSE VOTER DOES NOT HAVE THE RIGHT ROLE")
         return False
 
-def issueRoleCredential(rc_rsakey, rc_symkey, did):
+def issueRoleCredential(rc_rsapkey, rc_rsaskey, rc_symkey, issuer, holder_did):
     rc_json = loadCredential("role_credential_example.json")
-    rc_json["credentialSubject"]["id"] = did
+    rc_json["credentialSubject"]["id"] = holder_did
     rc_msg = json.dumps(rc_json)
 
     fernet = Fernet(rc_symkey)
     enc_rc = fernet.encrypt(rc_msg.encode())
-    enc_key = rsa.encrypt(rc_symkey, rc_rsakey)
+    enc_key = rsa.encrypt(rc_symkey, rc_rsaskey)
+
+    cred_id = issueCredential(issuer, "did:" + str(issuer.address), holder_did, enc_rc, "", "", "")
+
+    concat_key = str(rc_rsapkey) + "_" + str(enc_key)
+
+    issuer_contract.addIssuer("did:" + str(issuer.address), "RSA_FERMAT", concat_key, {'from': issuer})
 
     return {
+        "id" : cred_id, 
         "encryped_key" : enc_key,
         "role_credential" : enc_rc
     }
@@ -328,11 +344,11 @@ def main():
 
     print("BEGIN VOTING PROCESS ===\n")
     
-    print("ISSING ROLE CREDENTIAL ===\n")
-    role_credential_pack = issueRoleCredential(rc_sk, rc_symkey, "did" + str(voter.address))
+    print("ISSUING ROLE CREDENTIAL ===\n")
+    role_credential_pack = issueRoleCredential(rc_pk, rc_sk, rc_symkey, hospital_rc, "did" + str(voter.address))
 
     print("ADDING VOTE ===\n")
-    addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, rc_pk, "block2", voter, doctor, "did:" + str(doctor.address), "did:" + str(patient.address), cham_hash_pk_sk["pk"])
+    addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, rc_pk, "block2", voter, doctor, "did:" + str(doctor.address), "did:" + str(patient.address), cham_hash_pk_sk["pk"], "did:" + str(hospital_rc.address))
 
     print("VERIFYING DOCTOR MODIFIED SUPPORTING CREDENTIAL (Doctor) ===\n")
     print(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3]))
