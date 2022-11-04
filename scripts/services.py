@@ -186,15 +186,14 @@ def adaptSupportingCredential(credential_hash, original_msg, new_msg, cham_pk, h
     }
 
 def adaptSupportingCredentialBlock(supporting_credential, block, hash_func, ch_pk, abe_secret_key, gid):
-    
-    block_original = json.loads(supporting_credential[block]["msg"])
+
+    block_original = supporting_credential[block]["msg"]
     block_modified = block_original
-    block_modified["credentialSubject"]["permissions"] = ["some permissions"]
+    block_modified = json.loads(block_modified)
+    block_modified["credentialSubject"]["permissions"] = ["some permissions 2"]
     block_modified = json.dumps(block_modified)
 
-    print(block_modified)
-    
-    hash_modified = collision(json.dumps(block_original), block_modified, supporting_credential[block]["hash"], hash_func, ch_pk, abe_secret_key, gid)
+    hash_modified = collision(block_original, block_modified, supporting_credential[block]["hash"], hash_func, ch_pk, abe_secret_key, gid)
     
     modified_supporting_credential = supporting_credential
 
@@ -278,18 +277,9 @@ def main():
     doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Doctor", ["DOCTOR@DOCTORA"]) 
 
     print("ADAPTING BLOCK 2 HASH (Doctor) ===\n")
-    #doctor_modified_supporting_credential = adaptSupportingCredentialBlock(supporting_credential, "block2", chamHash2, cham_hash_pk_sk["pk"], doctor_abe_secret_key, "Doctor")
+    supporting_credential = adaptSupportingCredentialBlock(supporting_credential, "block2", chamHash2, cham_hash_pk_sk["pk"], doctor_abe_secret_key, "Doctor")
 
     # TODO: add modified credential to credential registry, voting registry
-
-    block2_doctor_modified = credential_msg_json[1]
-    block2_doctor_modified["credentialSubject"]["permissions"] = ["some permissions"]
-    block2_doctor_modified = json.dumps(block2_doctor_modified)
-    block2_doctor_modified_pack = adaptSupportingCredential(supporting_credential["block2"]["hash"], supporting_credential["block2"]["msg"], block2_doctor_modified, cham_hash_pk_sk["pk"], chamHash2, doctor_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address), True, 1, "Doctor")
-
-    supporting_credential["block2"]["hash"] = block2_doctor_modified_pack["credential_hash"]
-    supporting_credential["block2"]["id"] = block2_doctor_modified_pack["credential_id"]
-    supporting_credential["block2"]["msg"] = block2_doctor_modified
 
     print("VERIFYING DOCTOR MODIFIED SUPPORTING CREDENTIAL (Doctor) ===\n")
     print(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3]))
@@ -302,17 +292,10 @@ def main():
     # TODO: voting
 
     # == Patient ==
-    print("ADAPTING HASH (Patient 1) ===\n")
-    #patient_modified_supporting_credential = adaptSupportingCredentialBlock(supporting_credential, "block3", chamHash3, cham_hash_pk_sk["pk"], patient1_abe_secret_key, "Patient1")
+    print("ADAPTING BLOCK 3 (Patient 1) ===\n")
+    supporting_credential = adaptSupportingCredentialBlock(supporting_credential, "block3", chamHash3, cham_hash_pk_sk["pk"], patient1_abe_secret_key, "Patient1")
 
-    block3_patient_modified = credential_msg_json[2]
-    block3_patient_modified["credentialSubject"]["permissions"] = ["some permissions"]
-    block3_patient_modified = json.dumps(block3_patient_modified)
-    block3_patient_modified_pack = adaptSupportingCredential(supporting_credential["block3"]["hash"], supporting_credential["block3"]["msg"], block3_patient_modified, cham_hash_pk_sk["pk"], chamHash3, patient1_abe_secret_key, doctor, "did:" + str(doctor.address), "did:" + str(patient.address), True, 1, "Patient1")
-
-    supporting_credential["block3"]["hash"] = block3_patient_modified_pack["credential_hash"]
-    supporting_credential["block3"]["id"] = block3_patient_modified_pack["credential_id"]
-    supporting_credential["block3"]["msg"] = block3_patient_modified
+    # TODO: add modified credential to credential registry, voting registry
 
     # == Relative ==
 
