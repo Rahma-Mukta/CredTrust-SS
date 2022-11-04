@@ -57,7 +57,7 @@ def issueCredential(issuing_account, issuer, holder, credential_hash, r, e, n1):
     
     return id
 
-def getCredential(id, acc, hash):
+def getCredential(id, acc):
 
     _, _, _, cred_hash, cred_r, cred_e, cred_n1 = cred_contract.getCredential(id, {'from': acc})
     
@@ -107,6 +107,8 @@ def createHash(cham_pk, cham_sk, msg, hash_func, abe_master_pk, access_policy):
 
 def generateAndIssueSupportingCredential(supporting_credential_msg, hash_funcs, access_policy, ch_pk, ch_sk, authority_abe_pk, issuing_account, official_issuer, holder):
 
+    # credential hashing
+
     block1_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[0]), hash_funcs[0], authority_abe_pk, access_policy)
     block2_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[1]), hash_funcs[1], authority_abe_pk, access_policy)
     block3_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[2]), hash_funcs[2], authority_abe_pk, access_policy)
@@ -115,7 +117,27 @@ def generateAndIssueSupportingCredential(supporting_credential_msg, hash_funcs, 
     block2_cred_id = issueCredential(issuing_account, official_issuer, holder, block2_original_hash["h"], block2_original_hash["r"], block2_original_hash["e"], block2_original_hash["N1"])
     block3_cred_id = issueCredential(issuing_account, official_issuer, holder, block3_original_hash["h"], block3_original_hash["r"], block3_original_hash["e"], block3_original_hash["N1"])    
     
+    credential_uuid_list = block1_cred_id + "_" + block2_cred_id + "_" + block3_cred_id
+
+    metadata_hash = createHash(ch_pk, ch_sk, credential_uuid_list, hash_funcs[3], authority_abe_pk, access_policy)
+    metadata_id = issueCredential(issuing_account, official_issuer, holder, metadata_hash["h"], metadata_hash["r"], metadata_hash["e"], metadata_hash["N1"])
+
+    # voting 
+    voting_required = False
+
+    if (supporting_credential_msg[0]["scenario"] in ["InPatient"]):
+        voting_required = True
+
+    vote_contract.addCredential(metadata_id, voting_required, supporting_credential_msg[0]["numVotesRequired"], {'from': issuing_account})
+
+    # collate supporting credential
+
     supporting_credential = {
+        "metadata": {
+            "msg" : credential_uuid_list,
+            "hash" : metadata_hash,
+            "id" : metadata_id
+        },
         "block1" : {
             "msg" : json.dumps(supporting_credential_msg[0]),
             "hash" : block1_original_hash,
@@ -136,16 +158,26 @@ def generateAndIssueSupportingCredential(supporting_credential_msg, hash_funcs, 
     return supporting_credential
 
 def verifySupportingCredential(supporting_credential, ch_pk, hash_funcs):
-    
+
     chamHash1 = hash_funcs[0]
     chamHash2 = hash_funcs[1]
     chamHash3 = hash_funcs[2]
 
-    block1_verify_res = chamHash1.hashcheck(ch_pk, supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"])
-    block2_verify_res = chamHash2.hashcheck(ch_pk, supporting_credential["block2"]["msg"], supporting_credential["block2"]["hash"])
-    block3_verify_res = chamHash3.hashcheck(ch_pk, supporting_credential["block3"]["msg"], supporting_credential["block3"]["hash"])
-    
-    return (block1_verify_res and block2_verify_res and block3_verify_res)
+    cred_registry_check1 = cred_contract.checkCredential(supporting_credential["metadata"]["id"], supporting_credential["metadata"]["hash"]["h"], supporting_credential["metadata"]["hash"]["r"], supporting_credential["metadata"]["hash"]["e"], supporting_credential["metadata"]["hash"]["N1"], {'from': accounts[0]})
+    cred_registry_check2 = cred_contract.checkCredential(supporting_credential["block1"]["id"], supporting_credential["block1"]["hash"]["h"], supporting_credential["block1"]["hash"]["r"], supporting_credential["block1"]["hash"]["e"], supporting_credential["block1"]["hash"]["N1"],{'from': accounts[0]})
+    cred_registry_check3 = cred_contract.checkCredential(supporting_credential["block2"]["id"], supporting_credential["block2"]["hash"]["h"], supporting_credential["block2"]["hash"]["r"], supporting_credential["block2"]["hash"]["e"], supporting_credential["block2"]["hash"]["N1"],{'from': accounts[0]})
+    cred_registry_check4 = cred_contract.checkCredential(supporting_credential["block3"]["id"], supporting_credential["block3"]["hash"]["h"], supporting_credential["block3"]["hash"]["r"], supporting_credential["block3"]["hash"]["e"], supporting_credential["block3"]["hash"]["N1"],{'from': accounts[0]})
+
+    if (cred_registry_check1 and cred_registry_check2 and cred_registry_check3 and cred_registry_check4):
+        block1_verify_res = chamHash1.hashcheck(ch_pk, supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"])
+        block2_verify_res = chamHash2.hashcheck(ch_pk, supporting_credential["block2"]["msg"], supporting_credential["block2"]["hash"])
+        block3_verify_res = chamHash3.hashcheck(ch_pk, supporting_credential["block3"]["msg"], supporting_credential["block3"]["hash"])
+
+        return (block1_verify_res and block2_verify_res and block3_verify_res)
+
+    else:
+        return False
+
 
 def collision(original_msg, new_msg, h, hash_func, ch_pk, abe_secret_key, gid):
     
@@ -198,7 +230,6 @@ def adaptSupportingCredentialBlock(supporting_credential, block, hash_func, ch_p
     modified_supporting_credential = supporting_credential
 
     modified_supporting_credential[block]["hash"] = hash_modified
-    modified_supporting_credential[block]["id"] = "N/A"
     modified_supporting_credential[block]["msg"] = block_modified
 
     return modified_supporting_credential
@@ -207,28 +238,34 @@ def loadCredential(file):
     with open(file, "r") as f:
         return json.load(f)
 
+def issueAdaptedSupportingCredential(supporting_credential, block, issuer_account, issuer, holder):
+    if (checkVoting(supporting_credential["metadata"]["id"], issuer_account)):
+        cred_contract.issueCredential(supporting_credential[block]["id"], issuer, holder, supporting_credential[block]["hash"]["h"], supporting_credential[block]["hash"]["r"], supporting_credential[block]["hash"]["e"], supporting_credential[block]["hash"]["N1"], {'from': issuer_account})
+        return True
+    else:
+        return False
+
 ## voting
 
-def tryShareModifiedCredential(credential_id, issuer_account):
+def checkVoting(credential_id, issuer_account):
     return vote_contract.isVotingCompleted(credential_id, {'from': issuer_account})
 
-def addVote(hash, cred_id, cred_message, cham_pk, role_credential_pack, role_credential_pk, voter, hash_func):
-    # TODO: fix
-    if (verifySupportingCredential(cred_message, hash, cham_pk, voter, hash_func)):
-        
-        decryped_sym_key = rsa.decrypt(role_credential_pack["encryped_key"], role_credential_pk)
-        fernet = Fernet(decryped_sym_key)    
+def addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, role_credential_pk, block, issuer_account, issuer, holder):
+    decryped_sym_key = rsa.decrypt(role_credential_pack["encryped_key"], role_credential_pk)
+    fernet = Fernet(decryped_sym_key)    
 
-        decryped_rc = fernet.decrypt(role_credential_pack["role_credential"]).decode()
-        json_rc = json.loads(decryped_rc)
-        cred_message_json = json.loads(cred_message)
+    decryped_rc = fernet.decrypt(role_credential_pack["role_credential"]).decode()
+    json_rc = json.loads(decryped_rc)
 
-        if (json_rc["credentialSubject"]["role"] in cred_message_json[0]["approvalPolicty"]):
-            vote_contract.vote(cred_id, {'from': voter})
-        else:
-            print("COULD NOT VOTE BECAUSE VOTER DOES NOT HAVE THE RIGHT ROLE")
+    block1 = json.loads(supporting_credential["block1"]["msg"])
+
+    if (json_rc["credentialSubject"]["role"] in block1["approvalPolicty"]):
+        vote_contract.vote(supporting_credential["metadata"]["id"], {'from': voter})
+        return issueAdaptedSupportingCredential(supporting_credential, block, issuer_account, issuer, holder)
+
     else:
-        print("COULD NOT VOTE BECAUSE MESSAGE IS NOT CORRECT")
+        print("COULD NOT VOTE BECAUSE VOTER DOES NOT HAVE THE RIGHT ROLE")
+        return False
 
 def issueRoleCredential(rc_rsakey, rc_symkey):
     rc_json = loadCredential("role_credential_example.json")
@@ -258,12 +295,17 @@ def main():
 
     chamHash3 = chamwithemp.Chamwithemp()
     _ = createCHKeys(chamHash3)
-    
-    # TODO: role credential
+
+    chamHash4 = chamwithemp.Chamwithemp()
+    _ = createCHKeys(chamHash4)
+
+    print("CREATING REGULAR ROLE CREDENTIAL KEYS ===\n")
+    rc_sk, rc_pk = rsa.newkeys(512)
+    rc_symkey = Fernet.generate_key()
 
     print("CREATING AND ISSUING SUPPORTING CREDENTIAL ===\n")
     credential_msg_json = loadCredential("supporting_credential_example.json")
-    supporting_credential = generateAndIssueSupportingCredential(credential_msg_json, [chamHash1, chamHash2 , chamHash3], "(DOCTOR@DOCTORA or PATIENT@DOCTORA)",
+    supporting_credential = generateAndIssueSupportingCredential(credential_msg_json, [chamHash1, chamHash2 , chamHash3, chamHash4], "(DOCTOR@DOCTORA or PATIENT@DOCTORA)",
                                                                  cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], 
                                                                  hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
 
@@ -278,8 +320,19 @@ def main():
 
     print("ADAPTING BLOCK 2 HASH (Doctor) ===\n")
     supporting_credential = adaptSupportingCredentialBlock(supporting_credential, "block2", chamHash2, cham_hash_pk_sk["pk"], doctor_abe_secret_key, "Doctor")
+    
+    print("TRY SHARE MODIFIED CREDENTIAL WITHOUT VOTES ===\n")
+    try_issue_doctor_modified_sc = issueAdaptedSupportingCredential(supporting_credential, "block2", doctor , "did:" + str(doctor.address), "did:" + str(patient.address))
+    print(try_issue_doctor_modified_sc)
 
-    # TODO: add modified credential to credential registry, voting registry
+    # TODO: voting
+    print("BEGIN VOTING PROCESS===\n")
+    
+    print("ISSING ROLE CREDENTIAL===\n")
+    role_credential_pack = issueRoleCredential(rc_sk, rc_symkey)
+
+    print("ADDING VOTE===\n")
+    addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, rc_pk, "block2", doctor , "did:" + str(doctor.address), "did:" + str(patient.address))
 
     print("VERIFYING DOCTOR MODIFIED SUPPORTING CREDENTIAL (Doctor) ===\n")
     print(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3]))
@@ -289,13 +342,12 @@ def main():
 
     # action flow: share key and credential with patient
 
-    # TODO: voting
-
     # == Patient ==
     print("ADAPTING BLOCK 3 (Patient 1) ===\n")
     supporting_credential = adaptSupportingCredentialBlock(supporting_credential, "block3", chamHash3, cham_hash_pk_sk["pk"], patient1_abe_secret_key, "Patient1")
 
-    # TODO: add modified credential to credential registry, voting registry
+    try_issue_patient_modified_sc = issueAdaptedSupportingCredential(supporting_credential, "block3", patient , "did:" + str(patient.address), "did:" + str(relative.address))
+    print(try_issue_patient_modified_sc)
 
     # == Relative ==
 

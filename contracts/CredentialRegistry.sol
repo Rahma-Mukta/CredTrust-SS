@@ -57,4 +57,20 @@ contract credentialRegistry {
             credential[_id].n1
         );
     }
+
+    function checkCredential(
+        string _id,
+        string _credentialHash,
+        string _r,
+        string _e,
+        string _n1
+    ) public view returns (bool isSame)
+    {
+        return (
+            (keccak256(abi.encodePacked(credential[_id].credentialHash)) == keccak256(abi.encodePacked(_credentialHash))) &&
+            (keccak256(abi.encodePacked(credential[_id].r)) == keccak256(abi.encodePacked(_r))) &&
+            (keccak256(abi.encodePacked(credential[_id].e)) == keccak256(abi.encodePacked(_e))) &&
+            (keccak256(abi.encodePacked(credential[_id].n1)) == keccak256(abi.encodePacked(_n1)))
+        );
+    }
 }
