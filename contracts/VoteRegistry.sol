@@ -8,6 +8,7 @@ contract VoteRegistry {
         bool votingRequired;
         int numRequiredVotes;
         int currentVotesReceived;
+        string[] voters;
     }
 
     mapping(string => CredentialVoteInfo) private credentialVotes;
@@ -24,9 +25,24 @@ contract VoteRegistry {
     }
 
     function vote(
-        string _id
+        string _id,
+        string _voter
     ) public {
-        credentialVotes[_id].currentVotesReceived++;
+
+        bool encountered = false;
+
+        for (uint256 i = 0; i < credentialVotes[_id].voters.length; ++i) { 
+            if (keccak256(abi.encodePacked(credentialVotes[_id].voters[i])) == keccak256(abi.encodePacked(_voter)))
+            {
+                encountered = true;
+            }
+        }
+
+        if (encountered == false)
+        {
+            credentialVotes[_id].currentVotesReceived++;
+            credentialVotes[_id].voters.push(_voter);
+        }
     }
 
     function isVotingCompleted(string _id) public view returns (bool hasCompleted)

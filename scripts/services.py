@@ -258,17 +258,19 @@ def addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, r
     json_rc = json.loads(decryped_rc)
 
     block1 = json.loads(supporting_credential["block1"]["msg"])
+    voter_did = json_rc["credentialSubject"]["id"]
 
     if (json_rc["credentialSubject"]["role"] in block1["approvalPolicty"]):
-        vote_contract.vote(supporting_credential["metadata"]["id"], {'from': voter})
+        vote_contract.vote(supporting_credential["metadata"]["id"], voter_did, {'from': voter})
         return issueAdaptedSupportingCredential(supporting_credential, block, issuer_account, issuer, holder)
 
     else:
         print("COULD NOT VOTE BECAUSE VOTER DOES NOT HAVE THE RIGHT ROLE")
         return False
 
-def issueRoleCredential(rc_rsakey, rc_symkey):
+def issueRoleCredential(rc_rsakey, rc_symkey, did):
     rc_json = loadCredential("role_credential_example.json")
+    rc_json["credentialSubject"]["id"] = did
     rc_msg = json.dumps(rc_json)
 
     fernet = Fernet(rc_symkey)
@@ -329,7 +331,7 @@ def main():
     print("BEGIN VOTING PROCESS===\n")
     
     print("ISSING ROLE CREDENTIAL===\n")
-    role_credential_pack = issueRoleCredential(rc_sk, rc_symkey)
+    role_credential_pack = issueRoleCredential(rc_sk, rc_symkey, "did" + str(voter.address))
 
     print("ADDING VOTE===\n")
     addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, rc_pk, "block2", doctor , "did:" + str(doctor.address), "did:" + str(patient.address))
