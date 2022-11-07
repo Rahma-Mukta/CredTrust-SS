@@ -112,20 +112,26 @@ def generateAndIssueSupportingCredential(supporting_credential, hash_funcs, acce
     supporting_credential_msg = supporting_credential
     supporting_credential_msg[0]["Officialissuer"] = official_issuer
 
+    print("\t - create chameleon hash for block 1, block 2 and block 3")
     # credential hashing
     block1_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[0]), hash_funcs[0], authority_abe_pk, access_policy)
     block2_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[1]), hash_funcs[1], authority_abe_pk, access_policy)
     block3_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[2]), hash_funcs[2], authority_abe_pk, access_policy)
     
+    print("\t - add block 1, block 2 and block 3 to credential registry")
     block1_cred_id = issueCredential(issuing_account, official_issuer, holder, block1_original_hash["h"], block1_original_hash["r"], block1_original_hash["e"], block1_original_hash["N1"])
     block2_cred_id = issueCredential(issuing_account, official_issuer, holder, block2_original_hash["h"], block2_original_hash["r"], block2_original_hash["e"], block2_original_hash["N1"])
     block3_cred_id = issueCredential(issuing_account, official_issuer, holder, block3_original_hash["h"], block3_original_hash["r"], block3_original_hash["e"], block3_original_hash["N1"])    
     
     credential_uuid_list = block1_cred_id + "_" + block2_cred_id + "_" + block3_cred_id
 
+    print("\t - create chameleon hash for supporting credential")
     metadata_hash = createHash(ch_pk, ch_sk, credential_uuid_list, hash_funcs[3], authority_abe_pk, access_policy)
+    
+    print("\t - add supporting credential to credential registry")
     metadata_id = issueCredential(issuing_account, official_issuer, holder, metadata_hash["h"], metadata_hash["r"], metadata_hash["e"], metadata_hash["N1"])
 
+    print("\t - add credential to vote registry")
     # voting 
     voting_required = False
 
@@ -134,6 +140,7 @@ def generateAndIssueSupportingCredential(supporting_credential, hash_funcs, acce
 
     vote_contract.addCredential(metadata_id, voting_required, supporting_credential_msg[0]["numVotesRequired"], {'from': issuing_account})
 
+    print("\t - add Hospital to issuer registry")
     # adding to issuer registry
     issuer_contract.addIssuer(official_issuer, "PCH", str(ch_pk["N"]), {'from': issuing_account})
 
@@ -169,16 +176,22 @@ def verifySupportingCredential(supporting_credential, ch_pk, hash_funcs):
     msg = supporting_credential["block1"]["msg"]
     official_issuer = (json.loads(msg))["Officialissuer"]
 
+    print("\t - check issuer is in issuer registry")
+
     check_public_key = issuer_contract.checkIssuer(official_issuer, "PCH", str(ch_pk["N"]), {'from': accounts[0]})
 
     chamHash1 = hash_funcs[0]
     chamHash2 = hash_funcs[1]
     chamHash3 = hash_funcs[2]
 
+    print("\t - check credential is valid in credential registry")
+
     cred_registry_check1 = cred_contract.checkCredential(supporting_credential["metadata"]["id"], supporting_credential["metadata"]["hash"]["h"], supporting_credential["metadata"]["hash"]["r"], supporting_credential["metadata"]["hash"]["e"], supporting_credential["metadata"]["hash"]["N1"], {'from': accounts[0]})
     cred_registry_check2 = cred_contract.checkCredential(supporting_credential["block1"]["id"], supporting_credential["block1"]["hash"]["h"], supporting_credential["block1"]["hash"]["r"], supporting_credential["block1"]["hash"]["e"], supporting_credential["block1"]["hash"]["N1"],{'from': accounts[0]})
     cred_registry_check3 = cred_contract.checkCredential(supporting_credential["block2"]["id"], supporting_credential["block2"]["hash"]["h"], supporting_credential["block2"]["hash"]["r"], supporting_credential["block2"]["hash"]["e"], supporting_credential["block2"]["hash"]["N1"],{'from': accounts[0]})
     cred_registry_check4 = cred_contract.checkCredential(supporting_credential["block3"]["id"], supporting_credential["block3"]["hash"]["h"], supporting_credential["block3"]["hash"]["r"], supporting_credential["block3"]["hash"]["e"], supporting_credential["block3"]["hash"]["N1"],{'from': accounts[0]})
+
+    print("\t - check credential signature")
 
     if (check_public_key and cred_registry_check1 and cred_registry_check2 and cred_registry_check3 and cred_registry_check4):
         block1_verify_res = chamHash1.hashcheck(ch_pk, supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"])
@@ -221,6 +234,7 @@ def adaptSupportingCredentialBlock(supporting_credential, block, hash_func, ch_p
     block_modified["credentialSubject"]["permissions"] = ["some permissions 2"]
     block_modified = json.dumps(block_modified)
 
+    print("\t - computing collision")
     hash_modified = collision(block_original, block_modified, supporting_credential[block]["hash"], hash_func, ch_pk, abe_secret_key, gid)
     
     modified_supporting_credential = supporting_credential
@@ -235,10 +249,14 @@ def loadCredential(file):
         return json.load(f)
 
 def issueAdaptedSupportingCredential(supporting_credential, block, issuer_account, issuer, holder, ch_pk):
+    
+    print("\t - check voting results")
     if (checkVoting(supporting_credential["metadata"]["id"], issuer_account)):
+        
+        print("\t - issue modified credential")
         cred_contract.issueCredential(supporting_credential[block]["id"], issuer, holder, supporting_credential[block]["hash"]["h"], supporting_credential[block]["hash"]["r"], supporting_credential[block]["hash"]["e"], supporting_credential[block]["hash"]["N1"], {'from': issuer_account})
         
-        # adding to issuer registry
+        print("\t - adding issuer to registry")
         issuer_contract.addIssuer(issuer, "PCH", str(ch_pk["N"]), {'from': issuer_account})
 
         return True
@@ -255,10 +273,13 @@ def addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, r
     # role credential
     concat_rc_keys = str(role_credential_pk) + "_" + str(role_credential_pack["encryped_key"])
 
+
+    print("\t - check issuer is in issuer registry")
     if (issuer_contract.checkIssuer(rc_issuer, "RSA_FERMAT", concat_rc_keys, {'from': accounts[0]}) == False):
         print("ROLE CREDENTIAL KEYS ARE NOT VALID")
         return False
     
+    print("\t - decrypt credential, check voter is eligible for voting")
     decryped_sym_key = rsa.decrypt(role_credential_pack["encryped_key"], role_credential_pk)
     fernet = Fernet(decryped_sym_key)    
 
@@ -269,7 +290,11 @@ def addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, r
     voter_did = json_rc["credentialSubject"]["id"]
 
     if (json_rc["credentialSubject"]["role"] in block1["approvalPolicty"]):
+
+        print("\t - add vote to voting registry")
         vote_contract.vote(supporting_credential["metadata"]["id"], voter_did, {'from': voting_account})
+
+        print("\t - try to issue modified credential")
         return issueAdaptedSupportingCredential(supporting_credential, block, issuer_account, issuer, holder, ch_pk)
 
     else:
@@ -277,6 +302,9 @@ def addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, r
         return False
 
 def issueRoleCredential(rc_rsapkey, rc_rsaskey, rc_symkey, issuer, holder_did):
+    
+    print("\t - sign role credential")
+    
     rc_json = loadCredential("role_credential_example.json")
     rc_json["credentialSubject"]["id"] = holder_did
     rc_msg = json.dumps(rc_json)
@@ -285,10 +313,13 @@ def issueRoleCredential(rc_rsapkey, rc_rsaskey, rc_symkey, issuer, holder_did):
     enc_rc = fernet.encrypt(rc_msg.encode())
     enc_key = rsa.encrypt(rc_symkey, rc_rsaskey)
 
+
+    print("\t - issue role credential")
     cred_id = issueCredential(issuer, "did:" + str(issuer.address), holder_did, enc_rc, "", "", "")
 
     concat_key = str(rc_rsapkey) + "_" + str(enc_key)
 
+    print("\t - add issuer to issuer registry")
     issuer_contract.addIssuer("did:" + str(issuer.address), "RSA_FERMAT", concat_key, {'from': issuer})
 
     return {
@@ -300,10 +331,13 @@ def issueRoleCredential(rc_rsapkey, rc_rsaskey, rc_symkey, issuer, holder_did):
 def main():
 
     # == hospital ==
-    print("CREATING ABE AUTHORITY ===\n")
+
+    print("=== HOSPITAL ===")
+
+    print("CREATING ABE AUTHORITY ===")
     maab_master_pk_sk = createABEAuthority("DOCTORA")
 
-    print("CREATING CH KEYS ===\n")
+    print("CREATING CH KEYS ===")
     chamHash1 = chamwithemp.Chamwithemp()
     cham_hash_pk_sk = createCHKeys(chamHash1)
 
@@ -316,56 +350,64 @@ def main():
     chamHash4 = chamwithemp.Chamwithemp()
     _ = createCHKeys(chamHash4)
 
-    print("CREATING REGULAR ROLE CREDENTIAL KEYS ===\n")
+    print("CREATING REGULAR ROLE CREDENTIAL KEYS ===")
+    print("\t - create RSA public private key pair")
     rc_sk, rc_pk = rsa.newkeys(512)
+    print("\t - create symmetric encryption (fernet) key")
     rc_symkey = Fernet.generate_key()
 
-    print("CREATING AND ISSUING SUPPORTING CREDENTIAL ===\n")
+    print("CREATING AND ISSUING SUPPORTING CREDENTIAL ===")
     credential_msg_json = loadCredential("supporting_credential_example.json")
     supporting_credential = generateAndIssueSupportingCredential(credential_msg_json, [chamHash1, chamHash2 , chamHash3, chamHash4], "(DOCTOR@DOCTORA or PATIENT@DOCTORA)",
                                                                  cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], 
                                                                  hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
 
+    print("ACTION: SHARE CREDENTIAL & KEYS WITH DOCTOR(S)")
     # action: share credential pack, cham_hash_pk and maab_master_pk_sk with DOCTORA
 
-    # == doctor ==
-    print("VERIFYING SUPPORTING CREDENTIAL ===\n")
-    print(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3]))
+    print("=== DOCTOR ===")
 
-    print("CREATING ABE SECRET KEY FOR DOCTOR ===\n")
+    # == doctor ==
+    print("VERIFYING SUPPORTING CREDENTIAL ===")
+    print("\t - attempt result: " + str(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3])))
+
+    print("CREATING ABE SECRET KEY FOR DOCTOR ===")
     doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Doctor", ["DOCTOR@DOCTORA"]) 
 
-    print("ADAPTING BLOCK 2 HASH (Doctor) ===\n")
+    print("ADAPTING SUPPORTING CREDENTIAL (BLOCK 2 HASH) ===")
     supporting_credential = adaptSupportingCredentialBlock(supporting_credential, "block2", chamHash2, cham_hash_pk_sk["pk"], doctor_abe_secret_key, "Doctor")
 
-    print("TRY SHARE MODIFIED CREDENTIAL WITHOUT VOTES ===\n")
+    print("TRY TO SHARE MODIFIED CREDENTIAL WITHOUT VOTES ===")
     try_issue_doctor_modified_sc = issueAdaptedSupportingCredential(supporting_credential, "block2", doctor , "did:" + str(doctor.address), "did:" + str(patient.address), cham_hash_pk_sk["pk"])
-    print(try_issue_doctor_modified_sc)
+    print("\t - attempt result: " + str(try_issue_doctor_modified_sc))
 
-    print("BEGIN VOTING PROCESS ===\n")
+    print("BEGIN VOTING PROCESS ===")
     
-    print("ISSUING ROLE CREDENTIAL ===\n")
+    print("ISSUING ROLE CREDENTIAL ===")
     role_credential_pack = issueRoleCredential(rc_pk, rc_sk, rc_symkey, hospital_rc, "did" + str(voter.address))
 
-    print("ADDING VOTE ===\n")
+    print("ADDING VOTE ===")
     addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, rc_pk, "block2", voter, doctor, "did:" + str(doctor.address), "did:" + str(patient.address), cham_hash_pk_sk["pk"], "did:" + str(hospital_rc.address))
 
-    print("VERIFYING DOCTOR MODIFIED SUPPORTING CREDENTIAL (Doctor) ===\n")
-    print(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3]))
+    print("VERIFYING DOCTOR MODIFIED SUPPORTING CREDENTIAL (Doctor) ===")
+    print("\t - attempt result: " + str(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3])))
 
     print("CREATING ABE SECRET KEY FOR PATIENT 1 ===\n")
     patient1_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Patient1", ["PATIENT@DOCTORA"])
 
     # action flow: share key and credential with patient
+    print("ACTION: SHARE CREDENTIAL & KEYS WITH PATIENT")
 
     # == Patient ==
-    print("ADAPTING BLOCK 3 (Patient 1) ===\n")
+    print("=== PATIENT ===")
+
+    print("ADAPTING SUPPORTING CREDENTIAL (BLOCK 3 HASH) ===")
     supporting_credential = adaptSupportingCredentialBlock(supporting_credential, "block3", chamHash3, cham_hash_pk_sk["pk"], patient1_abe_secret_key, "Patient1")
 
     try_issue_patient_modified_sc = issueAdaptedSupportingCredential(supporting_credential, "block3", patient , "did:" + str(patient.address), "did:" + str(relative.address), cham_hash_pk_sk["pk"])
-    print(try_issue_patient_modified_sc)
+    print("\t - attempt result: " + str(try_issue_patient_modified_sc))
 
     # == Relative ==
-
+    print("=== RELATIVE/VERIFIER ===")
     print("VERIFYING HASH (Relative/Verifier) ===\n")
-    print(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3]))
+    print("\t - attempt result: " + str(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3])))

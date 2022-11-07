@@ -82,7 +82,7 @@ class Chamwithemp(ChamHash):
         d = (xi['e'] ** -1) % (phi_NN1)
         # print('d=>',d)
         if d == 1 / xi['e']:
-            print('reverse')
+            pass
         M1 = Conversion.bytes2integer(m1)
         M = Conversion.bytes2integer(m)
         h = (self.group.hash(M) * (xi['r'] ** xi['e'])) % (pk['N'] * xi['N1'])

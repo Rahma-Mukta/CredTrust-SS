@@ -84,7 +84,6 @@ class MaabeRW15(ABEncMultiAuth):
         :return: The secret key for the attribute for the user with identifier gid.
         """
         _, auth, _ = self.unpack_attribute(attribute)
-        print(auth)
         assert sk['name'] == auth, "Attribute %s does not belong to authority %s" % (attribute, sk['name'])
 
         t = self.group.random()
