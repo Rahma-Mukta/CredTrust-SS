@@ -69,17 +69,17 @@ def convert_abe_master_sk_from_json(sk_json):
 def convert_abe_master_pk_from_json(pk_json):
     return {"name" : pk_json["name"], "egga" : convert_hex_to_pairing(groupObj, pk_json["egga"]), "gy" : convert_hex_to_pairing(groupObj, pk_json["gy"]) }
 
-def convert_cham_pk(pk_json):
+def convert_cham_pk(hash_func, pk_json):
     return {
         'secparam': int(pk_json["secparam"]), 
-        'N': convert_hex_to_pairing(chamwithemp.group, pk_json["N"]), 
-        'phi_N': convert_hex_to_pairing(chamwithemp.group, pk_json["phi_N"])
+        'N': convert_hex_to_pairing(hash_func.group, pk_json["N"]), 
+        'phi_N': convert_hex_to_pairing(hash_func.group, pk_json["phi_N"])
     }
 
-def convert_cham_sk(sk_json):
+def convert_cham_sk(hash_func, sk_json):
     return {
-        'p': convert_hex_to_pairing(chamwithemp.group, sk_json["p"]), 
-        'q': convert_hex_to_pairing(chamwithemp.group, sk_json["q"])
+        'p': convert_hex_to_pairing(hash_func.group, sk_json["p"]), 
+        'q': convert_hex_to_pairing(hash_func.group, sk_json["q"])
     }
 
 def convert_maabect_to_json(maabect):
@@ -135,24 +135,25 @@ def createABEAuthority():
 @app.route("/create_ch_keys", methods=['GET'])
 def createCHKeys():
     request_data = request.json
-    hash_func_id = int(request_data["hash_func_id"])
+    hash_func_id = request_data["hash_func_id"]
     hash_func = all_hash_funcs[hash_func_id]
     (pk, sk) = hash_func.keygen(1024)
 
     return dumps({
         "pk" : {
             'secparam': pk["secparam"], 
-            'N': convert_pairing_to_hex(chamwithemp.group, pk["N"]), 
-            'phi_N': convert_pairing_to_hex(chamwithemp.group, pk["phi_N"])
+            'N': convert_pairing_to_hex(hash_func.group, pk["N"]), 
+            'phi_N': convert_pairing_to_hex(hash_func.group, pk["phi_N"])
             },
         "sk" : {
-            'p': convert_pairing_to_hex(chamwithemp.group, sk["p"]), 
-            'q': convert_pairing_to_hex(chamwithemp.group, sk["q"])
+            'p': convert_pairing_to_hex(hash_func.group, sk["p"]), 
+            'q': convert_pairing_to_hex(hash_func.group, sk["q"])
         }
     })
 
 @app.route("/init_hash_fns", methods=['GET'])
 def initHashFuncs():
+  global cur_index
   id_list = []
   
   chamHash1 = chamwithemp.Chamwithemp()
@@ -170,7 +171,7 @@ def initHashFuncs():
   id_list.append(str(cur_index))
   all_hash_funcs[str(cur_index)] = chamHash3
   cur_index += 1
-
+  print(id_list)
   return dumps(id_list)
 
 @app.route("/create_abe_attribute_secret_key", methods=['POST'])
@@ -211,10 +212,10 @@ def createHash(cham_pk, cham_sk, msg, hash_func, maabepk, access_policy):
     #groupObj.debug(ct)
     #print("ciphertext:=>", ct)
     h = {
-        "h" : convert_pairing_to_hex(chamwithemp.group, xi['h']),
-        "r" : convert_pairing_to_hex(chamwithemp.group, xi['r']),
-        "N1" : convert_pairing_to_hex(chamwithemp.group, xi['N1']),
-        "e" : convert_pairing_to_hex(chamwithemp.group, xi['e']),
+        "h" : convert_pairing_to_hex(hash_func.group, xi['h']),
+        "r" : convert_pairing_to_hex(hash_func.group, xi['r']),
+        "N1" : convert_pairing_to_hex(hash_func.group, xi['N1']),
+        "e" : convert_pairing_to_hex(hash_func.group, xi['e']),
         "cipher" : {'rkc': convert_maabect_to_json(maabect),'ec':symct }
     }
     return h
@@ -226,12 +227,14 @@ def generateAndIssueSupportingCredential():
   
   supporting_credential_msg = request_data["supporting_credential_contents"]
 
+  hash_id_list = request_data["hash_func_id_list"]
+
+  key_hash_func = all_hash_funcs[hash_id_list[0]]
+
   json_cham_pk = request_data["cham_pk"]
   json_cham_sk = request_data["cham_sk"]
-  ch_pk = convert_cham_pk(json_cham_pk)
-  ch_sk = convert_cham_sk(json_cham_sk)
-
-  hash_id_list = request_data["hash_func_id_list"]
+  ch_pk = convert_cham_pk(key_hash_func, json_cham_pk)
+  ch_sk = convert_cham_sk(key_hash_func, json_cham_sk)
 
   access_policy = request_data["access_policy"]
 
@@ -300,10 +303,12 @@ def verifySupportingCredential():
 
   supporting_credential = request_data["supporting_credential"]
 
-  json_cham_pk = request_data["cham_pk"]
-  ch_pk = convert_cham_pk(json_cham_pk)
-
   hash_id_list = request_data["hash_func_id_list"]
+
+  key_hash_func = all_hash_funcs[hash_id_list[0]]
+
+  json_cham_pk = request_data["cham_pk"]
+  ch_pk = convert_cham_pk(key_hash_func, json_cham_pk)
 
   check_public_key = issuer_contract.checkIssuer("Hospital Issuer", "PCH", str(ch_pk["N"]), {'from': accounts[0]})
 
@@ -311,15 +316,38 @@ def verifySupportingCredential():
   chamHash2 = all_hash_funcs[hash_id_list[1]]
   chamHash3 = all_hash_funcs[hash_id_list[2]]
 
-  cred_registry_check1 = cred_contract.checkCredential(supporting_credential["metadata"]["id"], supporting_credential["metadata"]["hash"]["h"], "r", "e", "N1", {'from': accounts[0]})
+  cred_registry_check1 = cred_contract.checkCredential(supporting_credential["metadata"]["id"], supporting_credential["metadata"]["hash"], "r", "e", "N1", {'from': accounts[0]})
+  print("cred registry check 1 is : ", cred_registry_check1)
   cred_registry_check2 = cred_contract.checkCredential(supporting_credential["block1"]["id"], supporting_credential["block1"]["hash"]["h"], supporting_credential["block1"]["hash"]["r"], supporting_credential["block1"]["hash"]["e"], supporting_credential["block1"]["hash"]["N1"],{'from': accounts[0]})
   cred_registry_check3 = cred_contract.checkCredential(supporting_credential["block2"]["id"], supporting_credential["block2"]["hash"]["h"], supporting_credential["block2"]["hash"]["r"], supporting_credential["block2"]["hash"]["e"], supporting_credential["block2"]["hash"]["N1"],{'from': accounts[0]})
   cred_registry_check4 = cred_contract.checkCredential(supporting_credential["block3"]["id"], supporting_credential["block3"]["hash"]["h"], supporting_credential["block3"]["hash"]["r"], supporting_credential["block3"]["hash"]["e"], supporting_credential["block3"]["hash"]["N1"],{'from': accounts[0]})
 
   if (check_public_key and cred_registry_check1 and cred_registry_check2 and cred_registry_check3 and cred_registry_check4):
-      block1_verify_res = chamHash1.hashcheck(ch_pk, supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"])
-      block2_verify_res = chamHash2.hashcheck(ch_pk, supporting_credential["block2"]["msg"], supporting_credential["block2"]["hash"])
-      block3_verify_res = chamHash3.hashcheck(ch_pk, supporting_credential["block3"]["msg"], supporting_credential["block3"]["hash"])
+      
+      original_b1_hash = {
+        "h" : convert_hex_to_pairing(chamHash1.group, supporting_credential["block1"]["hash"]["h"]),
+        "r" : convert_hex_to_pairing(chamHash1.group, supporting_credential["block1"]["hash"]["r"]),
+        "N1" : convert_hex_to_pairing(chamHash1.group, supporting_credential["block1"]["hash"]["N1"]),
+        "e" : convert_hex_to_pairing(chamHash1.group, supporting_credential["block1"]["hash"]["e"])
+      }
+
+      original_b2_hash = {
+        "h" : convert_hex_to_pairing(chamHash2.group, supporting_credential["block2"]["hash"]["h"]),
+        "r" : convert_hex_to_pairing(chamHash2.group, supporting_credential["block2"]["hash"]["r"]),
+        "N1" : convert_hex_to_pairing(chamHash2.group, supporting_credential["block2"]["hash"]["N1"]),
+        "e" : convert_hex_to_pairing(chamHash2.group, supporting_credential["block2"]["hash"]["e"])
+      }
+
+      original_b3_hash = {
+        "h" : convert_hex_to_pairing(chamHash3.group, supporting_credential["block3"]["hash"]["h"]),
+        "r" : convert_hex_to_pairing(chamHash3.group, supporting_credential["block3"]["hash"]["r"]),
+        "N1" : convert_hex_to_pairing(chamHash3.group, supporting_credential["block3"]["hash"]["N1"]),
+        "e" : convert_hex_to_pairing(chamHash3.group, supporting_credential["block3"]["hash"]["e"])
+      }
+      
+      block1_verify_res = chamHash1.hashcheck(ch_pk, supporting_credential["block1"]["msg"], original_b1_hash)
+      block2_verify_res = chamHash2.hashcheck(ch_pk, supporting_credential["block2"]["msg"], original_b2_hash)
+      block3_verify_res = chamHash3.hashcheck(ch_pk, supporting_credential["block3"]["msg"], original_b3_hash)
 
       return dumps({ "is_hash_valid" : str(block1_verify_res and block2_verify_res and block3_verify_res) })
 
@@ -329,10 +357,10 @@ def verifySupportingCredential():
 def collision(original_msg, new_msg, json_hash, hash_func, ch_pk, user_sk):
   
   h = {
-        "h" : convert_hex_to_pairing(chamwithemp.group, json_hash["h"]),
-        "r" : convert_hex_to_pairing(chamwithemp.group, json_hash["r"]),
-        "N1" : convert_hex_to_pairing(chamwithemp.group, json_hash["N1"]),
-        "e" : convert_hex_to_pairing(chamwithemp.group, json_hash["e"]),
+        "h" : convert_hex_to_pairing(hash_func.group, json_hash["h"]),
+        "r" : convert_hex_to_pairing(hash_func.group, json_hash["r"]),
+        "N1" : convert_hex_to_pairing(hash_func.group, json_hash["N1"]),
+        "e" : convert_hex_to_pairing(hash_func.group, json_hash["e"]),
         "cipher" : {"rkc" : convert_json_maabect_to_pairing(json_hash["cipher"]["rkc"]), "ec" : json_hash["cipher"]["ec"]}
     }
   
@@ -353,27 +381,29 @@ def collision(original_msg, new_msg, json_hash, hash_func, ch_pk, user_sk):
   r1 = hash_func.collision(original_msg, new_msg, h, rec_etdint, ch_pk)
   #if debug: print("new randomness =>", r1)
   new_h = {
-        "h" : convert_pairing_to_hex(chamwithemp.group, h['h']),
-        "r" : convert_pairing_to_hex(chamwithemp.group, r1),
-        "N1" : convert_pairing_to_hex(chamwithemp.group, h['N1']),
-        "e" : convert_pairing_to_hex(chamwithemp.group, h['e']),
+        "h" : convert_pairing_to_hex(hash_func.group, h['h']),
+        "r" : convert_pairing_to_hex(hash_func.group, r1),
+        "N1" : convert_pairing_to_hex(hash_func.group, h['N1']),
+        "e" : convert_pairing_to_hex(hash_func.group, h['e']),
         "cipher" : {'rkc': convert_maabect_to_json(h['cipher']['rkc']),'ec': h['cipher']['ec'] }
   }
   return new_h
 
 @app.route("/adapt", methods=['POST'])
-def adaptSupportingCredentialBlock(abe_secret_key, gid):
+def adaptSupportingCredentialBlock():
 
   request_data = request.json
   supporting_credential = request_data["supporting_credential"]
 
-  block = request_data["block"]
-
-  hash_func_id = request_data["hash_func_id"]
-  hash_func = all_hash_funcs[hash_func_id]
+  hash_id_list = request_data["hash_func_id_list"]
+  key_hash_func = all_hash_funcs[hash_id_list[0]]
+  # hardcode for api testing
+  block_hash_func = all_hash_funcs[hash_id_list[1]]
 
   json_cham_pk = request_data["cham_pk"]
-  ch_pk = convert_cham_pk(json_cham_pk)
+  ch_pk = convert_cham_pk(key_hash_func, json_cham_pk)
+
+  gid = request_data["gid"]
 
   json_abe_secret_key = request_data["abe_secret_key"]
   original_abe_sk_dict = {}
@@ -383,21 +413,21 @@ def adaptSupportingCredentialBlock(abe_secret_key, gid):
 
   abe_secret_key = {'GID': gid, 'keys': original_abe_sk_dict}
 
-  block_original = supporting_credential[block]["msg"]
+  block_original = supporting_credential["block2"]["msg"]
   block_modified = block_original
   block_modified = json.loads(block_modified)
   block_modified["credentialSubject"]["permissions"] = ["some permissions 2"]
   block_modified = json.dumps(block_modified)
 
-  hash_modified = collision(block_original, block_modified, supporting_credential[block]["hash"], hash_func, ch_pk, abe_secret_key)
+  hash_modified = collision(block_original, block_modified, supporting_credential["block2"]["hash"], block_hash_func, ch_pk, abe_secret_key)
   
   modified_supporting_credential = supporting_credential
 
-  modified_supporting_credential[block]["hash"] = hash_modified
-  modified_supporting_credential[block]["msg"] = block_modified
+  modified_supporting_credential["block2"]["hash"] = hash_modified
+  modified_supporting_credential["block2"]["msg"] = block_modified
 
   # TODO: add voting
-  cred_contract.issueCredential(supporting_credential[block]["id"], "Doctor Issuer", "Patient Issuer", supporting_credential[block]["hash"]["h"], supporting_credential[block]["hash"]["r"], supporting_credential[block]["hash"]["e"], supporting_credential[block]["hash"]["N1"], {'from': accounts[1]})
+  cred_contract.issueCredential(supporting_credential["block2"]["id"], "Doctor Issuer", "Patient Issuer", supporting_credential["block2"]["hash"]["h"], supporting_credential["block2"]["hash"]["r"], supporting_credential["block2"]["hash"]["e"], supporting_credential["block2"]["hash"]["N1"], {'from': accounts[1]})
   issuer_contract.addIssuer("Doctor Issuer", "PCH", str(ch_pk["N"]), {'from': accounts[1]})
 
   return dumps(modified_supporting_credential)
