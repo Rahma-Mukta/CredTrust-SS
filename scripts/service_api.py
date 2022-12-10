@@ -120,7 +120,7 @@ def convert_json_maabect_to_pairing(maabect_json):
 def issueCredential(issuing_account, issuer, holder, credential_hash, r):
   id = str(uuid.uuid1())
   tx = cred_contract.issueCredential(id, issuer, holder, credential_hash, r, {'from': issuing_account, 'gas': 7_500_000})
-  print(dir(tx))
+#   print(dir(tx))
   web3.eth.waitForTransactionReceipt(tx.txid)  
   return id
 
@@ -313,7 +313,7 @@ def verifySupportingCredential():
   ch_pk = convert_cham_pk(key_hash_func, json_cham_pk)
 
   check_public_key = issuer_contract.checkIssuer("Hospital Issuer", "PCH", str(ch_pk["N"]), {'from': contractDeployAccount})
-  print(dir(check_public_key))
+#   print(dir(check_public_key))
   web3.eth.waitForTransactionReceipt(check_public_key)
 
   chamHash1 = all_hash_funcs[hash_id_list[0]]
@@ -321,19 +321,19 @@ def verifySupportingCredential():
   chamHash3 = all_hash_funcs[hash_id_list[2]]
 
   cred_registry_check1 = cred_contract.checkCredential(supporting_credential["metadata"]["id"], supporting_credential["metadata"]["hash"], "r", "e", "N1", {'from': contractDeployAccount})
-  print(dir(cred_registry_check1))
+#   print(dir(cred_registry_check1))
   web3.eth.waitForTransactionReceipt(cred_registry_check1.txid)
   
   
   print("cred registry check 1 is : ", cred_registry_check1)
   cred_registry_check2 = cred_contract.checkCredential(supporting_credential["block1"]["id"], supporting_credential["block1"]["hash"]["h"], supporting_credential["block1"]["hash"]["r"], supporting_credential["block1"]["hash"]["e"], supporting_credential["block1"]["hash"]["N1"],{'from': contractDeployAccount})
-  print(dir(cred_registry_check2))
+#   print(dir(cred_registry_check2))
   web3.eth.waitForTransactionReceipt(cred_registry_check2.txid)
   cred_registry_check3 = cred_contract.checkCredential(supporting_credential["block2"]["id"], supporting_credential["block2"]["hash"]["h"], supporting_credential["block2"]["hash"]["r"], supporting_credential["block2"]["hash"]["e"], supporting_credential["block2"]["hash"]["N1"],{'from': contractDeployAccount})
-  print(dir(cred_registry_check3))
+#   print(dir(cred_registry_check3))
   web3.eth.waitForTransactionReceipt(cred_registry_check3.txid)
   cred_registry_check4 = cred_contract.checkCredential(supporting_credential["block3"]["id"], supporting_credential["block3"]["hash"]["h"], supporting_credential["block3"]["hash"]["r"], supporting_credential["block3"]["hash"]["e"], supporting_credential["block3"]["hash"]["N1"],{'from': contractDeployAccount})
-  print(dir(cred_registry_check4))
+#   print(dir(cred_registry_check4))
   web3.eth.waitForTransactionReceipt(cred_registry_check4.txid)
 
   if (check_public_key and cred_registry_check1 and cred_registry_check2 and cred_registry_check3 and cred_registry_check4):
@@ -442,11 +442,11 @@ def adaptSupportingCredentialBlock():
 
   # TODO: add voting
   tx = cred_contract.issueCredential(supporting_credential["block2"]["id"], "Doctor Issuer", "Patient Issuer", supporting_credential["block2"]["hash"]["h"], supporting_credential["block2"]["hash"]["r"], {'from': contractDeployAccount, 'max_fee' : '0.20 gwei'})
-  print(dir(tx))
-  web3.eth.waitForTransactionReceipt(tx)
+#   print(dir(tx))
+  web3.eth.waitForTransactionReceipt(tx.txid)
   tx = issuer_contract.addIssuer("Doctor Issuer", "PCH", str(ch_pk["N"]), {'from': contractDeployAccount})
-  print(dir(tx))
-  web3.eth.waitForTransactionReceipt(tx)
+#   print(dir(tx))
+  web3.eth.waitForTransactionReceipt(tx.txid)
 
   return dumps(modified_supporting_credential)
 
@@ -454,4 +454,4 @@ def adaptSupportingCredentialBlock():
 def hello():
     return 'Hello, World!'
 
-app.run(threaded=False)
+app.run()
