@@ -21,15 +21,15 @@ body = { "hash_func_id" : hash_func_ids_list[0] }
 x = requests.get("http://127.0.0.1:5000/create_ch_keys", headers=head, json=body)
 cham_hash_pk_sk1 = json.loads(x.text)
 
-print("CREATING CH KEYS FOR 2 ===\n")
-body = { "hash_func_id" : hash_func_ids_list[1] }
-x = requests.get("http://127.0.0.1:5000/create_ch_keys", headers=head, json=body)
-cham_hash_pk_sk2 = json.loads(x.text)
+# print("CREATING CH KEYS FOR 2 ===\n")
+# body = { "hash_func_id" : hash_func_ids_list[1] }
+# x = requests.get("http://127.0.0.1:5000/create_ch_keys", headers=head, json=body)
+# cham_hash_pk_sk2 = json.loads(x.text)
 
-print("CREATING CH KEYS FOR 3 ===\n")
-body = { "hash_func_id" : hash_func_ids_list[2] }
-x = requests.get("http://127.0.0.1:5000/create_ch_keys", headers=head, json=body)
-cham_hash_pk_sk3 = json.loads(x.text)
+# print("CREATING CH KEYS FOR 3 ===\n")
+# body = { "hash_func_id" : hash_func_ids_list[2] }
+# x = requests.get("http://127.0.0.1:5000/create_ch_keys", headers=head, json=body)
+# cham_hash_pk_sk3 = json.loads(x.text)
 
 ### create abe attribute secret key
 print("CREATING ABE SECRET KEY ===\n")
