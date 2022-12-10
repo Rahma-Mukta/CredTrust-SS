@@ -24,7 +24,7 @@ import re
 # vote_contract = VoteRegistry.deploy({'from': contractDeployAccount})
 # issuer_contract = IssuerRegistry.deploy({'from': contractDeployAccount})
 contractDeployAccount = accounts.load('deployment_account')
-cred_contract = credentialRegistry.at('0x6983BB28834A39eAC034593bC7Df015cF23FC822')
+cred_contract = credentialRegistry.at('0xb4D657ef5122bF6D99dc4fe6CF6a84BC74a38051')
 vote_contract = VoteRegistry.at('0x36259565436E1D273def8089800C8B0902BD83a8')
 issuer_contract = IssuerRegistry.at('0x73AC097d1601e5183783367dcA032e443F037f2d')
 # network.gas_limit("auto")
@@ -117,9 +117,9 @@ def convert_json_maabect_to_pairing(maabect_json):
     }
 
 # credential
-def issueCredential(issuing_account, issuer, holder, credential_hash, r, e, n1):
+def issueCredential(issuing_account, issuer, holder, credential_hash, r):
   id = str(uuid.uuid1())
-  tx = cred_contract.issueCredential(id, issuer, holder, credential_hash, r, e, n1, {'from': issuing_account, 'gas': 7_500_000})
+  tx = cred_contract.issueCredential(id, issuer, holder, credential_hash, r, {'from': issuing_account, 'gas': 7_500_000})
   print(dir(tx))
   web3.eth.waitForTransactionReceipt(tx.txid)  
   return id
@@ -246,15 +246,15 @@ def generateAndIssueSupportingCredential():
   block2_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[1]), all_hash_funcs[hash_id_list[1]], authority_abe_pk, access_policy)
   block3_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[2]), all_hash_funcs[hash_id_list[2]], authority_abe_pk, access_policy)
 
-  block1_cred_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", block1_original_hash["h"], block1_original_hash["r"], block1_original_hash["e"], block1_original_hash["N1"])
-  block2_cred_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", block2_original_hash["h"], block2_original_hash["r"], block2_original_hash["e"], block2_original_hash["N1"])
-  block3_cred_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", block3_original_hash["h"], block3_original_hash["r"], block3_original_hash["e"], block3_original_hash["N1"])    
+  block1_cred_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", block1_original_hash["h"], block1_original_hash["r"])
+  block2_cred_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", block2_original_hash["h"], block2_original_hash["r"])
+  block3_cred_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", block3_original_hash["h"], block3_original_hash["r"])    
 
   credential_uuid_list = block1_cred_id + "_" + block2_cred_id + "_" + block3_cred_id
 
   # metadata_hash = createHash(ch_pk, ch_sk, credential_uuid_list, all_hash_funcs[hash_id_list[3]], authority_abe_pk, access_policy)
   
-  metadata_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", credential_uuid_list, "r", "e", "N1")
+  metadata_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", credential_uuid_list, "r")
 
   # TODO: voting 
   # voting_required = False
@@ -441,7 +441,7 @@ def adaptSupportingCredentialBlock():
   modified_supporting_credential["block2"]["msg"] = block_modified
 
   # TODO: add voting
-  tx = cred_contract.issueCredential(supporting_credential["block2"]["id"], "Doctor Issuer", "Patient Issuer", supporting_credential["block2"]["hash"]["h"], supporting_credential["block2"]["hash"]["r"], supporting_credential["block2"]["hash"]["e"], supporting_credential["block2"]["hash"]["N1"], {'from': contractDeployAccount, 'max_fee' : '0.20 gwei'})
+  tx = cred_contract.issueCredential(supporting_credential["block2"]["id"], "Doctor Issuer", "Patient Issuer", supporting_credential["block2"]["hash"]["h"], supporting_credential["block2"]["hash"]["r"], {'from': contractDeployAccount, 'max_fee' : '0.20 gwei'})
   print(dir(tx))
   web3.eth.waitForTransactionReceipt(tx)
   tx = issuer_contract.addIssuer("Doctor Issuer", "PCH", str(ch_pk["N"]), {'from': contractDeployAccount})
