@@ -11,6 +11,8 @@ from charm.toolbox.symcrypto import AuthenticatedCryptoAbstraction,SymmetricCryp
 from charm.core.math.pairing import hashPair as extractor
 from charm.toolbox.integergroup import integer
 import re
+from cryptography.fernet import Fernet
+
 contractDeployAccount = accounts[0]
 hospital = accounts[1]
 doctor = accounts[2]
@@ -36,6 +38,7 @@ else:
 groupObj = PairingGroup('SS512')
 maabe = MAABE.MaabeRW15(groupObj)
 public_parameters = maabe.setup()
+symkey = Fernet.generate_key()
 
 app = Flask("__main__")
 
@@ -269,7 +272,10 @@ def generateAndIssueSupportingCredential():
 
   credential_uuid_list = block1_hash["id"] + "_" + block2_hash["id"] + "_" + block3_hash["id"]
 
-  metadata_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", credential_uuid_list)
+  fernet = Fernet(symkey)
+  enc_uuid_list = fernet.encrypt(credential_uuid_list.encode())
+
+  metadata_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", enc_uuid_list)
 
   # TODO: voting 
   # voting_required = False
@@ -288,7 +294,7 @@ def generateAndIssueSupportingCredential():
   supporting_credential = {
       "metadata": {
           "msg" : credential_uuid_list,
-          "hash" : credential_uuid_list,
+          "hash" : enc_uuid_list.decode(encoding='UTF-8'),
           "id" : metadata_id
       },
       "block1" : {
@@ -327,6 +333,9 @@ def verifySupportingCredential():
   json_cham_pk = request_data["cham_pk"]
   ch_pk = convert_cham_pk(key_hash_func, json_cham_pk)
 
+  fernet = Fernet(symkey)    
+  decryped_uuid_list = fernet.decrypt(supporting_credential["metadata"]["hash"]).decode()
+
   check_public_key = issuer_contract.checkIssuer("Hospital Issuer", "PCH", str(ch_pk["N"]), {'from': contractDeployAccount})
 #   print(dir(check_public_key))
 #   web3.eth.waitForTransactionReceipt(check_public_key)
@@ -339,7 +348,7 @@ def verifySupportingCredential():
 #   print(dir(cred_registry_check1))
 #   web3.eth.waitForTransactionReceipt(cred_registry_check1.txid)
 
-  if (check_public_key and cred_registry_check1):
+  if (check_public_key and cred_registry_check1 and (decryped_uuid_list == supporting_credential["metadata"]["msg"])):
       
       original_b1_hash = {
         "h" : convert_hex_to_pairing(chamHash1.group, supporting_credential["block1"]["hash"]["h"]),
