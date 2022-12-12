@@ -121,11 +121,9 @@ def convert_json_maabect_to_pairing(maabect_json):
     }
 
 # credential
-def issueCredential(issuing_account, issuer, holder, credential_hash, r):
+def issueCredential(issuing_account, issuer, holder, credential_hash):
   id = str(uuid.uuid1())
-  tx = cred_contract.issueCredential(id, issuer, holder, credential_hash, r, {'from': issuing_account, 'gas': 7_500_000})
-#   print(dir(tx))
-#   web3.eth.waitForTransactionReceipt(tx.txid)  
+  cred_contract.issueCredential(id, issuer, holder, credential_hash, {'from': issuing_account, 'gas': 7_500_000})
   return id
 
 @app.route("/create_abe_authority", methods=['POST'])
@@ -217,6 +215,15 @@ def createHash(cham_pk, cham_sk, msg, hash_func, maabepk, access_policy):
     #if debug: print("\n\nCiphertext...\n")
     #groupObj.debug(ct)
     #print("ciphertext:=>", ct)
+
+    ct = {'rkc':maabect,'ec':symct}
+    h = {'h': xi['h'], 'r': xi['r'], 'cipher':ct, 'N1': xi['N1'], 'e': xi['e']}
+    return h
+
+def convertHash(xi, hash_func):
+    maabect = xi["cipher"]["rkc"]
+    symct = xi["cipher"]["ec"]
+
     h = {
         "h" : convert_pairing_to_hex(hash_func.group, xi['h']),
         "r" : convert_pairing_to_hex(hash_func.group, xi['r']),
@@ -225,6 +232,11 @@ def createHash(cham_pk, cham_sk, msg, hash_func, maabepk, access_policy):
         "cipher" : {'rkc': convert_maabect_to_json(maabect),'ec':symct }
     }
     return h
+
+def createHashWithUUID(cham_pk, cham_sk, msg, hash_func, maabepk, access_policy):
+  id = str(uuid.uuid1())
+  res = createHash(cham_pk, cham_sk, msg, hash_func, maabepk, access_policy)
+  return { "id" : id, "hash" : res }
 
 @app.route("/hash", methods=['POST'])
 def generateAndIssueSupportingCredential():
@@ -246,19 +258,18 @@ def generateAndIssueSupportingCredential():
 
   authority_abe_pk = { request_data["authority_abe_pk"]["name"] : convert_abe_master_pk_from_json(request_data["authority_abe_pk"]) }
 
-  block1_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[0]), all_hash_funcs[hash_id_list[0]], authority_abe_pk, access_policy)
-  block2_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[1]), all_hash_funcs[hash_id_list[1]], authority_abe_pk, access_policy)
-  block3_original_hash = createHash(ch_pk, ch_sk, json.dumps(supporting_credential_msg[2]), all_hash_funcs[hash_id_list[2]], authority_abe_pk, access_policy)
+  block1_hash = createHashWithUUID(ch_pk, ch_sk, json.dumps(supporting_credential_msg[0]), all_hash_funcs[hash_id_list[0]], authority_abe_pk, access_policy)
+  block1_original_hash = convertHash(block1_hash["hash"], all_hash_funcs[hash_id_list[0]])
 
-  block1_cred_id = issueCredential(accounts[0], "Hospital Issuer", "Doctor Issuer", block1_original_hash["h"], block1_original_hash["r"])
-  block2_cred_id = issueCredential(accounts[1], "Hospital Issuer", "Doctor Issuer", block2_original_hash["h"], block2_original_hash["r"])
-  block3_cred_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", block3_original_hash["h"], block3_original_hash["r"])    
+  block2_hash = createHashWithUUID(ch_pk, ch_sk, json.dumps(supporting_credential_msg[1]), all_hash_funcs[hash_id_list[1]], authority_abe_pk, access_policy)
+  block2_original_hash = convertHash(block2_hash["hash"], all_hash_funcs[hash_id_list[1]])
 
-  credential_uuid_list = block1_cred_id + "_" + block2_cred_id + "_" + block3_cred_id
+  block3_hash = createHashWithUUID(ch_pk, ch_sk, json.dumps(supporting_credential_msg[2]), all_hash_funcs[hash_id_list[2]], authority_abe_pk, access_policy)
+  block3_original_hash = convertHash(block3_hash["hash"], all_hash_funcs[hash_id_list[2]])
 
-  # metadata_hash = createHash(ch_pk, ch_sk, credential_uuid_list, all_hash_funcs[hash_id_list[3]], authority_abe_pk, access_policy)
-  
-  metadata_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", credential_uuid_list, "r")
+  credential_uuid_list = block1_hash["id"] + "_" + block2_hash["id"] + "_" + block3_hash["id"]
+
+  metadata_id = issueCredential(contractDeployAccount, "Hospital Issuer", "Doctor Issuer", credential_uuid_list)
 
   # TODO: voting 
   # voting_required = False
@@ -283,19 +294,19 @@ def generateAndIssueSupportingCredential():
       "block1" : {
           "msg" : json.dumps(supporting_credential_msg[0]),
           "hash" : block1_original_hash,
-          "id" : block1_cred_id,
+          "id" : block1_hash["id"],
           "hash_func_id" : hash_id_list[0]
       },
       "block2" : {
           "msg" : json.dumps(supporting_credential_msg[1]),
           "hash" : block2_original_hash,
-          "id" : block2_cred_id,
+          "id" : block2_hash["id"],
           "hash_func_id" : hash_id_list[1]
       },
       "block3" : {
           "msg" : json.dumps(supporting_credential_msg[2]),
           "hash" : block3_original_hash,
-          "id" : block3_cred_id,
+          "id" : block3_hash["id"],
           "hash_func_id" : hash_id_list[2]
       }
   }
@@ -324,23 +335,11 @@ def verifySupportingCredential():
   chamHash2 = all_hash_funcs[hash_id_list[1]]
   chamHash3 = all_hash_funcs[hash_id_list[2]]
 
-  cred_registry_check1 = cred_contract.checkCredential(supporting_credential["metadata"]["id"], supporting_credential["metadata"]["hash"], "r", "e", "N1", {'from': contractDeployAccount})
+  cred_registry_check1 = cred_contract.checkCredential(supporting_credential["metadata"]["id"], supporting_credential["metadata"]["hash"], {'from': contractDeployAccount})
 #   print(dir(cred_registry_check1))
 #   web3.eth.waitForTransactionReceipt(cred_registry_check1.txid)
-  
-  
-#   print("cred registry check 1 is : ", cred_registry_check1)
-  cred_registry_check2 = cred_contract.checkCredential(supporting_credential["block1"]["id"], supporting_credential["block1"]["hash"]["h"], supporting_credential["block1"]["hash"]["r"], supporting_credential["block1"]["hash"]["e"], supporting_credential["block1"]["hash"]["N1"],{'from': contractDeployAccount})
-#   print(dir(cred_registry_check2))
-#   web3.eth.waitForTransactionReceipt(cred_registry_check2.txid)
-  cred_registry_check3 = cred_contract.checkCredential(supporting_credential["block2"]["id"], supporting_credential["block2"]["hash"]["h"], supporting_credential["block2"]["hash"]["r"], supporting_credential["block2"]["hash"]["e"], supporting_credential["block2"]["hash"]["N1"],{'from': contractDeployAccount})
-#   print(dir(cred_registry_check3))
-#   web3.eth.waitForTransactionReceipt(cred_registry_check3.txid)
-  cred_registry_check4 = cred_contract.checkCredential(supporting_credential["block3"]["id"], supporting_credential["block3"]["hash"]["h"], supporting_credential["block3"]["hash"]["r"], supporting_credential["block3"]["hash"]["e"], supporting_credential["block3"]["hash"]["N1"],{'from': contractDeployAccount})
-#   print(dir(cred_registry_check4))
-#   web3.eth.waitForTransactionReceipt(cred_registry_check4.txid)
 
-  if (check_public_key and cred_registry_check1 and cred_registry_check2 and cred_registry_check3 and cred_registry_check4):
+  if (check_public_key and cred_registry_check1):
       
       original_b1_hash = {
         "h" : convert_hex_to_pairing(chamHash1.group, supporting_credential["block1"]["hash"]["h"]),
@@ -443,14 +442,6 @@ def adaptSupportingCredentialBlock():
 
   modified_supporting_credential["block2"]["hash"] = hash_modified
   modified_supporting_credential["block2"]["msg"] = block_modified
-
-  # TODO: add voting
-  tx = cred_contract.issueCredential(supporting_credential["block2"]["id"], "Doctor Issuer", "Patient Issuer", supporting_credential["block2"]["hash"]["h"], supporting_credential["block2"]["hash"]["r"], {'from': contractDeployAccount, 'max_fee' : '0.20 gwei'})
-#   print(dir(tx))
-#   web3.eth.waitForTransactionReceipt(tx.txid)
-#   tx = issuer_contract.addIssuer("Doctor Issuer", "PCH", str(ch_pk["N"]), {'from': contractDeployAccount})
-# #   print(dir(tx))
-#   web3.eth.waitForTransactionReceipt(tx.txid)
 
   return dumps(modified_supporting_credential)
 
