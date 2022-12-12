@@ -114,6 +114,9 @@ def generateAndIssueSupportingCredential(supporting_credential, hash_funcs, acce
     
     fernet = Fernet(symkey)
     enc_uuid_list = fernet.encrypt(credential_uuid_list.encode())
+    print("encryped uuid list isss")
+    print(enc_uuid_list)
+    print(type(enc_uuid_list))
 
     print("\t - add supporting credential to credential registry")
 
