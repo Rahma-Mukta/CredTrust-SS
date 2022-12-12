@@ -100,7 +100,7 @@ def createHashWithUUID(cham_pk, cham_sk, msg, hash_func, abe_master_pk, access_p
   res = createHash(cham_pk, cham_sk, msg, hash_func, abe_master_pk, access_policy)
   return { "id" : id, "hash" : res }
 
-def generateAndIssueSupportingCredential(supporting_credential, hash_funcs, access_policy, ch_pk, ch_sk, authority_abe_pk, issuing_account, official_issuer, holder):
+def generateAndIssueSupportingCredential(supporting_credential, hash_funcs, access_policy, ch_pk, ch_sk, authority_abe_pk, issuing_account, official_issuer, holder, symkey):
 
     supporting_credential_msg = supporting_credential
     supporting_credential_msg[0]["Officialissuer"] = official_issuer
@@ -112,8 +112,12 @@ def generateAndIssueSupportingCredential(supporting_credential, hash_funcs, acce
 
     credential_uuid_list = block1_original_hash["id"] + "_" + block2_original_hash["id"] + "_" + block3_original_hash["id"]
     
+    fernet = Fernet(symkey)
+    enc_uuid_list = fernet.encrypt(credential_uuid_list.encode())
+
     print("\t - add supporting credential to credential registry")
-    metadata_id = issueCredential(issuing_account, official_issuer, holder, credential_uuid_list)
+
+    metadata_id = issueCredential(issuing_account, official_issuer, holder, enc_uuid_list)
 
     if (supporting_credential_msg[0]["scenario"] in ["InPatient"]):
       vote_contract.addCredential(metadata_id, True, supporting_credential_msg[0]["numVotesRequired"], {'from': issuing_account})
@@ -127,7 +131,7 @@ def generateAndIssueSupportingCredential(supporting_credential, hash_funcs, acce
     supporting_credential = {
         "metadata": {
             "msg" : credential_uuid_list,
-            "hash" : credential_uuid_list,
+            "hash" : enc_uuid_list,
             "id" : metadata_id
         },
         "block1" : {
@@ -149,7 +153,7 @@ def generateAndIssueSupportingCredential(supporting_credential, hash_funcs, acce
 
     return supporting_credential
 
-def verifySupportingCredential(supporting_credential, ch_pk, hash_funcs):
+def verifySupportingCredential(supporting_credential, ch_pk, hash_funcs, sym_key):
 
     msg = supporting_credential["block1"]["msg"]
     official_issuer = (json.loads(msg))["Officialissuer"]
@@ -166,9 +170,12 @@ def verifySupportingCredential(supporting_credential, ch_pk, hash_funcs):
 
     cred_registry_check = cred_contract.checkCredential(supporting_credential["metadata"]["id"], supporting_credential["metadata"]["hash"], {'from': accounts[0]})
 
+    fernet = Fernet(sym_key)    
+    decryped_uuid_list = fernet.decrypt(supporting_credential["metadata"]["hash"]).decode()
+
     print("\t - check credential signature")
 
-    if (check_public_key and cred_registry_check):
+    if (check_public_key and cred_registry_check and (decryped_uuid_list == supporting_credential["metadata"]["msg"])):
         block1_verify_res = chamHash1.hashcheck(ch_pk, supporting_credential["block1"]["msg"], supporting_credential["block1"]["hash"])
         block2_verify_res = chamHash2.hashcheck(ch_pk, supporting_credential["block2"]["msg"], supporting_credential["block2"]["hash"])
         block3_verify_res = chamHash3.hashcheck(ch_pk, supporting_credential["block3"]["msg"], supporting_credential["block3"]["hash"])
@@ -329,12 +336,11 @@ def main():
     rc_sk, rc_pk = rsa.newkeys(512)
     print("\t - create symmetric encryption (fernet) key")
     rc_symkey = Fernet.generate_key()
-
     print("CREATING AND ISSUING SUPPORTING CREDENTIAL ===")
     credential_msg_json = loadCredential("supporting_credential_example.json")
     supporting_credential = generateAndIssueSupportingCredential(credential_msg_json, [chamHash1, chamHash2 , chamHash3, chamHash4], "(DOCTOR@DOCTORA or PATIENT@DOCTORA)",
                                                                  cham_hash_pk_sk["pk"], cham_hash_pk_sk["sk"], maab_master_pk_sk["pk"], 
-                                                                 hospital, "did:" + str(hospital.address), "did:" + str(doctor.address))
+                                                                 hospital, "did:" + str(hospital.address), "did:" + str(doctor.address), rc_symkey)
 
     print("ACTION: SHARE CREDENTIAL & KEYS WITH DOCTOR(S)")
     # action: share credential pack, cham_hash_pk and maab_master_pk_sk with DOCTORA
@@ -343,7 +349,7 @@ def main():
 
     # == doctor ==
     print("VERIFYING SUPPORTING CREDENTIAL ===")
-    print("\t - attempt result: " + str(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3])))
+    print("\t - attempt result: " + str(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3], rc_symkey)))
 
     print("CREATING ABE SECRET KEY FOR DOCTOR ===")
     doctor_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Doctor", ["DOCTOR@DOCTORA"]) 
@@ -364,7 +370,7 @@ def main():
     addVoteAndTryUpdateCredential(supporting_credential, role_credential_pack, rc_pk, "block2", voter, doctor, "did:" + str(doctor.address), "did:" + str(patient.address), cham_hash_pk_sk["pk"], "did:" + str(hospital_rc.address))
 
     print("VERIFYING DOCTOR MODIFIED SUPPORTING CREDENTIAL (Doctor) ===")
-    print("\t - attempt result: " + str(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3])))
+    print("\t - attempt result: " + str(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3], rc_symkey)))
 
     print("CREATING ABE SECRET KEY FOR PATIENT 1 ===\n")
     patient1_abe_secret_key = createABESecretKey(maab_master_pk_sk["sk"], "Patient1", ["PATIENT@DOCTORA"])
@@ -384,4 +390,4 @@ def main():
     # == Relative ==
     print("=== RELATIVE/VERIFIER ===")
     print("VERIFYING HASH (Relative/Verifier) ===\n")
-    print("\t - attempt result: " + str(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3])))
+    print("\t - attempt result: " + str(verifySupportingCredential(supporting_credential, cham_hash_pk_sk["pk"], [chamHash1, chamHash2 , chamHash3], rc_symkey)))
